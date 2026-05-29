@@ -18,8 +18,8 @@ INDICATORS: list[Indicator] = [
     # Growth axis
     Indicator("yield_curve",   "T10Y2Y",          "growth",    1, False, "fred"),
     Indicator("credit_spread", "BAMLH0A0HYM2",    "growth",    1, True,  "fred"),
-    Indicator("lei",           "USSLIND",          "growth",    1, False, "fred"),
-    Indicator("ism_pmi",       "NAPM",             "growth",    2, False, "fred"),
+    Indicator("initial_claims", "ICSA",             "growth",    1, True,  "fred"),  # inverse: higher = worse growth
+    Indicator("ism_pmi",       "IPMAN",            "growth",    2, False, "fred"),  # Industrial Production: Manufacturing
     Indicator("copper_gold",   "copper_gold",      "growth",    2, False, "price"),  # derived: HG=F / GC=F
     Indicator("spy_200ma",     "spy_200ma",        "growth",    2, False, "price"),  # derived: (SPY/200MA - 1) * 100
     Indicator("unemployment",  "UNRATE",           "growth",    3, True,  "fred"),

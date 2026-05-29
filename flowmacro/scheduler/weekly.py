@@ -9,8 +9,8 @@ from flowmacro.regime.scorer import compute_scores
 from flowmacro.regime.classifier import classify
 
 _FRED_SERIES = [
-    "T10Y2Y", "BAMLH0A0HYM2", "T5YIE", "USSLIND",
-    "NAPM", "UNRATE", "A191RL1Q225SBEA", "CPIAUCSL",
+    "T10Y2Y", "BAMLH0A0HYM2", "T5YIE", "ICSA",
+    "IPMAN", "UNRATE", "A191RL1Q225SBEA", "CPIAUCSL",
 ]
 
 _START_FETCH = "2005-01-01"
@@ -72,16 +72,16 @@ def run() -> None:
             f"growth={growth:.1f} inflation={inflation:.1f}"
         )
 
-        # 5. Store in regime_history
-        from supabase import create_client
-        from flowmacro.config import settings
-        create_client(settings.supabase_url, settings.supabase_key).table("regime_history").upsert({
-            "run_date":       str(date.today()),
-            "regime":         result.regime,
-            "confidence":     result.confidence,
-            "growth_score":   growth,
-            "inflation_score": inflation,
-        }).execute()
+        # 5. Store regime data in raw_series (avoids PostgREST schema cache issues)
+        _REGIME_CODE = {
+            "GOLDILOCKS": 1, "REFLATION": 2,
+            "STAGFLATION": 3, "DEFLATION": 4, "TRANSITIONING": 0,
+        }
+        today_ts = pd.Timestamp(date.today())
+        upsert_series("regime_code",       pd.Series([float(_REGIME_CODE[result.regime])], index=[today_ts]))
+        upsert_series("regime_confidence", pd.Series([result.confidence], index=[today_ts]))
+        upsert_series("growth_score",      pd.Series([growth], index=[today_ts]))
+        upsert_series("inflation_score",   pd.Series([inflation], index=[today_ts]))
 
         # 6. Email alert
         from flowmacro.alerts.gmail import send_alert

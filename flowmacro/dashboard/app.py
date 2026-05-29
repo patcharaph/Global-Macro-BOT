@@ -20,11 +20,29 @@ def _db():
     return create_client(settings.supabase_url, settings.supabase_key)
 
 
+_REGIME_DECODE = {1: "GOLDILOCKS", 2: "REFLATION", 3: "STAGFLATION", 4: "DEFLATION", 0: "TRANSITIONING"}
+
+
 @st.cache_data(ttl=300)
 def load_latest_regime() -> dict | None:
     try:
-        r = _db().table("regime_history").select("*").order("run_date", desc=True).limit(1).execute()
-        return r.data[0] if r.data else None
+        db = _db()
+        def _latest(sid: str) -> float | None:
+            r = db.table("raw_series").select("date,value").eq("series_id", sid).order("date", desc=True).limit(1).execute()
+            return (r.data[0]["value"], r.data[0]["date"]) if r.data else (None, None)
+        code, run_date   = _latest("regime_code")
+        conf, _          = _latest("regime_confidence")
+        growth, _        = _latest("growth_score")
+        inflation, _     = _latest("inflation_score")
+        if code is None:
+            return None
+        return {
+            "regime":          _REGIME_DECODE.get(int(code), "UNKNOWN"),
+            "confidence":      conf,
+            "growth_score":    growth,
+            "inflation_score": inflation,
+            "run_date":        run_date,
+        }
     except Exception:
         return None
 

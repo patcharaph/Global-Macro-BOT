@@ -21,7 +21,7 @@ def upsert_series(series_id: str, data: pd.Series) -> int:
         if pd.notna(val)
     ]
     for i in range(0, len(rows), _BATCH):
-        client.table("raw_series").upsert(rows[i : i + _BATCH]).execute()
+        client.table("raw_series").upsert(rows[i : i + _BATCH], on_conflict="series_id,date").execute()
     logger.debug(f"Supabase upsert {series_id}: {len(rows)} rows")
     return len(rows)
 

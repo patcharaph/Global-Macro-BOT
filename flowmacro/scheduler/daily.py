@@ -24,15 +24,16 @@ def run() -> None:
             if ticker in prices.columns:
                 upsert_series(ticker, prices[ticker].dropna())
 
-        # Derived indicators
-        copper_gold = (prices["HG=F"] / prices["GC=F"]).dropna()
-        upsert_series("copper_gold", copper_gold)
+        # Derived indicators — dropna ก่อน rolling เพื่อหลีกเลี่ยง NaN จาก multi-ticker date alignment
+        hg = prices["HG=F"].dropna()
+        gc = prices["GC=F"].dropna()
+        upsert_series("copper_gold", (hg / gc).dropna())
 
-        spy_200ma = ((prices["SPY"] / prices["SPY"].rolling(200).mean()) - 1) * 100
-        upsert_series("spy_200ma", spy_200ma.dropna())
+        spy = prices["SPY"].dropna()
+        upsert_series("spy_200ma", ((spy / spy.rolling(200).mean()) - 1).mul(100).dropna())
 
-        dxy_trend = ((prices["UUP"] / prices["UUP"].rolling(20).mean()) - 1) * 100
-        upsert_series("dxy_trend", dxy_trend.dropna())
+        uup = prices["UUP"].dropna()
+        upsert_series("dxy_trend", ((uup / uup.rolling(20).mean()) - 1).mul(100).dropna())
 
         # Alert if any key series is stale > 3 days
         stale_warn = {k: v for k, v in stale.items() if v > 3 and k in _PRICE_TICKERS[:17]}
