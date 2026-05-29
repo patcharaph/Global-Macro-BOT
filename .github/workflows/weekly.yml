@@ -1,0 +1,43 @@
+name: Weekly Regime Detection
+
+on:
+  schedule:
+    - cron: "30 1 * * 5"  # 08:30 Bangkok (UTC+7) every Friday
+  workflow_dispatch:        # manual trigger
+
+permissions:
+  contents: write           # needed for heartbeat commit
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run weekly job
+        env:
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
+          GMAIL_SENDER:       ${{ secrets.GMAIL_SENDER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_RECIPIENT:    ${{ secrets.GMAIL_RECIPIENT }}
+        run: python -m flowmacro.scheduler.weekly
+
+      - name: Heartbeat commit (prevent GitHub Actions auto-disable)
+        if: success()
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          echo "${{ github.run_id }}" > scheduler/last_run.txt
+          git add scheduler/last_run.txt
+          git commit -m "chore: heartbeat ${{ github.run_id }}" || true
+          git push || true
