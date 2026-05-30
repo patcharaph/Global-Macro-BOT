@@ -1,4 +1,5 @@
 import uuid
+from datetime import date
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
@@ -82,9 +83,13 @@ def run_backtest(
         cash_sharing=True,
     )
 
+    equity = pf.value()
+    equity_norm = (equity / equity.iloc[0] * 100).rename("equity_curve")
+
     return {
         "strategy":        _metrics(pf),
         "benchmark_60_40": _metrics(bench_pf),
+        "equity_curve":    equity_norm,
     }
 
 
@@ -100,6 +105,7 @@ def save_backtest(result: dict, client=None) -> str:
 
     row = {
         "run_id":               run_id,
+        "run_date":             str(date.today()),
         "sharpe_ratio":         strat["sharpe_ratio"],
         "max_drawdown":         strat["max_drawdown_pct"],
         "annual_return":        strat["total_return_pct"],

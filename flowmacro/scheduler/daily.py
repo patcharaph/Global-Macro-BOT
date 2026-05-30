@@ -1,4 +1,5 @@
 import sys
+from datetime import date, timedelta
 import pandas as pd
 from loguru import logger
 from flowmacro.data.sources.prices import fetch_prices
@@ -13,7 +14,9 @@ _PRICE_TICKERS = [
     "THB=X",
 ]
 
-_START = "2005-01-01"
+# Fetch 7 days to cover weekends/holidays — full history is already in Supabase
+_START_SEED  = "2005-01-01"   # used only by scripts/seed.py
+_START_DAILY = str(date.today() - timedelta(days=7))
 
 
 def run() -> None:
@@ -25,7 +28,7 @@ def run() -> None:
     failed_tickers: list[str] = []
 
     try:
-        prices, stale = fetch_prices(_PRICE_TICKERS, start=_START)
+        prices, stale = fetch_prices(_PRICE_TICKERS, start=_START_DAILY)
         failed_tickers = [t for t, d in stale.items() if d == -1]
         if failed_tickers:
             logger.warning(f"yfinance failed for: {failed_tickers}")
