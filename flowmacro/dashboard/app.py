@@ -50,24 +50,27 @@ def load_latest_regime() -> dict | None:
 @st.cache_data(ttl=300)
 def load_staleness() -> pd.DataFrame:
     try:
-        r = _db().table("raw_series").select("series_id, date").execute()
-        if not r.data:
-            return pd.DataFrame()
-        df = pd.DataFrame(r.data)
-        latest = df.groupby("series_id")["date"].max().reset_index()
+        from flowmacro.regime.indicators import INDICATORS
+        db = _db()
         today = date.today()
-        latest["stale_days"] = (
-            today - pd.to_datetime(latest["date"]).dt.date
-        ).apply(lambda x: x.days)
-        latest["status"] = latest["stale_days"].apply(
-            lambda d: "✅ OK" if d <= 3 else ("⚠️ Warn" if d <= 30 else "🔴 Stale")
-        )
-        return latest.rename(columns={
-            "series_id": "Indicator",
-            "date": "Last Update",
-            "stale_days": "Days Stale",
-            "status": "Status",
-        })[["Indicator", "Last Update", "Days Stale", "Status"]]
+        rows = []
+        series_ids = list(dict.fromkeys(
+            [i.series_id for i in INDICATORS] + [
+                "copper_gold", "spy_200ma", "dxy_trend", "cpi_yoy",
+                "regime_code", "regime_confidence",
+            ]
+        ))
+        for sid in series_ids:
+            r = db.table("raw_series").select("date").eq("series_id", sid) \
+                  .order("date", desc=True).limit(1).execute()
+            if not r.data:
+                continue
+            last_date = pd.to_datetime(r.data[0]["date"]).date()
+            stale = (today - last_date).days
+            status = "✅ OK" if stale <= 3 else ("⚠️ Warn" if stale <= 30 else "🔴 Stale")
+            rows.append({"Indicator": sid, "Last Update": str(last_date),
+                         "Days Stale": stale, "Status": status})
+        return pd.DataFrame(rows).sort_values("Days Stale", ascending=False)
     except Exception:
         return pd.DataFrame()
 

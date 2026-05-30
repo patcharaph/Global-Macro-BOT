@@ -53,19 +53,26 @@ def load_source_health() -> pd.DataFrame:
 @st.cache_data(ttl=300)
 def load_staleness_all() -> pd.DataFrame:
     try:
-        r = _db().table("raw_series").select("series_id, date").execute()
-        if not r.data:
-            return pd.DataFrame()
-        df = pd.DataFrame(r.data)
-        latest = df.groupby("series_id")["date"].max().reset_index()
+        from flowmacro.regime.indicators import INDICATORS
+        db = _db()
         today = date.today()
-        latest["days_stale"] = (today - pd.to_datetime(latest["date"]).dt.date).apply(lambda x: x.days)
-        latest["status"] = latest["days_stale"].apply(
-            lambda d: "✅" if d <= 3 else ("⚠️" if d <= 30 else "🔴")
-        )
-        return latest.sort_values("days_stale", ascending=False).rename(columns={
-            "series_id": "Series", "date": "Last Update", "days_stale": "Days Stale", "status": "Status"
-        })[["Series", "Last Update", "Days Stale", "Status"]]
+        rows = []
+        series_ids = list(dict.fromkeys(
+            [i.series_id for i in INDICATORS] + [
+                "copper_gold", "spy_200ma", "dxy_trend", "cpi_yoy",
+                "regime_code", "regime_confidence", "growth_score", "inflation_score",
+            ]
+        ))
+        for sid in series_ids:
+            r = db.table("raw_series").select("date").eq("series_id", sid) \
+                  .order("date", desc=True).limit(1).execute()
+            if not r.data:
+                continue
+            last_date = pd.to_datetime(r.data[0]["date"]).date()
+            stale = (today - last_date).days
+            rows.append({"Series": sid, "Last Update": str(last_date), "Days Stale": stale,
+                         "Status": "✅" if stale <= 3 else ("⚠️" if stale <= 30 else "🔴")})
+        return pd.DataFrame(rows).sort_values("Days Stale", ascending=False)
     except Exception:
         return pd.DataFrame()
 
