@@ -1,3 +1,4 @@
+import uuid
 import numpy as np
 import pandas as pd
 import vectorbt as vbt
@@ -85,3 +86,36 @@ def run_backtest(
         "strategy":        _metrics(pf),
         "benchmark_60_40": _metrics(bench_pf),
     }
+
+
+def save_backtest(result: dict, client=None) -> str:
+    """Save backtest result to Supabase. Returns run_id (UUID)."""
+    if client is None:
+        from flowmacro.data.store import _client
+        client = _client()
+
+    run_id = str(uuid.uuid4())
+    strat  = result["strategy"]
+    bench  = result["benchmark_60_40"]
+
+    row = {
+        "run_id":               run_id,
+        "sharpe_ratio":         strat["sharpe_ratio"],
+        "max_drawdown":         strat["max_drawdown_pct"],
+        "annual_return":        strat["total_return_pct"],
+        "benchmark_sharpe":     bench["sharpe_ratio"],
+        "benchmark_return":     bench["total_return_pct"],
+        "outperforms_benchmark": strat["total_return_pct"] > bench["total_return_pct"],
+    }
+    client.table("backtest_runs").upsert(row).execute()
+
+    equity: pd.Series | None = result.get("equity_curve")
+    if equity is not None and not equity.empty:
+        rows = [
+            {"series_id": "equity_curve", "date": str(idx.date()), "value": float(val)}
+            for idx, val in equity.items()
+            if pd.notna(val)
+        ]
+        client.table("raw_series").upsert(rows, on_conflict="series_id,date").execute()
+
+    return run_id
