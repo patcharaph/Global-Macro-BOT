@@ -1,5 +1,5 @@
 import sys
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 from loguru import logger
 from flowmacro.data.sources.fred import fetch_series
@@ -15,6 +15,41 @@ _FRED_SERIES = [
 
 _START_FETCH = "2005-01-01"
 _START_COMPUTE = "2019-01-01"  # 6 years for 5-year rolling window + buffer
+
+_REGIME_CODE = {
+    "GOLDILOCKS": 1, "REFLATION": 2,
+    "STAGFLATION": 3, "DEFLATION": 4, "TRANSITIONING": 0,
+}
+_REGIME_NAME = {v: k for k, v in _REGIME_CODE.items()}
+
+_LOW_CONFIDENCE_THRESHOLD = 60.0
+
+
+def _previous_regime() -> str | None:
+    """Read last stored regime from Supabase. Returns regime name or None."""
+    try:
+        yesterday = str(date.today() - timedelta(days=1))
+        series = read_series("regime_code", start="2019-01-01", end=yesterday)
+        if series.empty:
+            return None
+        last_val = series.dropna().iloc[-1]
+        return _REGIME_NAME.get(int(last_val))
+    except Exception as exc:
+        logger.warning(f"Could not read previous regime: {exc}")
+        return "UNKNOWN"
+
+
+def _should_alert(regime: str, confidence: float, previous: str | None) -> tuple[bool, str]:
+    """Return (should_send, reason)."""
+    if previous == "UNKNOWN":
+        return False, ""
+    if previous is None:
+        return True, "first run — no previous regime recorded"
+    if regime != previous:
+        return True, f"regime changed: {previous} → {regime}"
+    if confidence < _LOW_CONFIDENCE_THRESHOLD:
+        return True, f"low confidence: {confidence:.1f}%"
+    return False, ""
 
 
 def run() -> None:
@@ -46,7 +81,6 @@ def run() -> None:
                 if raw.empty:
                     logger.warning(f"No data for {ind.name} ({ind.series_id})")
                     continue
-                # Forward-fill to daily so rolling window works for monthly/quarterly series
                 daily = raw.resample("D").ffill()
                 normed = normalize(daily, ind, window_years=5)
                 last_idx = normed.last_valid_index()
@@ -72,29 +106,34 @@ def run() -> None:
             f"growth={growth:.1f} inflation={inflation:.1f}"
         )
 
-        # 5. Store regime data in raw_series (avoids PostgREST schema cache issues)
-        _REGIME_CODE = {
-            "GOLDILOCKS": 1, "REFLATION": 2,
-            "STAGFLATION": 3, "DEFLATION": 4, "TRANSITIONING": 0,
-        }
+        # 5. Store regime data
         today_ts = pd.Timestamp(date.today())
         upsert_series("regime_code",       pd.Series([float(_REGIME_CODE[result.regime])], index=[today_ts]))
         upsert_series("regime_confidence", pd.Series([result.confidence], index=[today_ts]))
         upsert_series("growth_score",      pd.Series([growth], index=[today_ts]))
         upsert_series("inflation_score",   pd.Series([inflation], index=[today_ts]))
 
-        # 6. Email alert
-        from flowmacro.alerts.gmail import send_alert
-        body = (
-            f"Date:            {date.today()}\n"
-            f"Regime:          {result.regime}\n"
-            f"Confidence:      {result.confidence:.1f}%\n"
-            f"Growth Score:    {growth:.1f}\n"
-            f"Inflation Score: {inflation:.1f}\n"
-            f"\nAvailable indicators ({len(normalized_latest)}): "
-            f"{', '.join(normalized_latest.keys())}"
-        )
-        send_alert(f"Weekly Regime: {result.regime} ({result.confidence:.0f}%)", body)
+        # 6. Alert — only on regime change or low confidence
+        previous = _previous_regime()
+        should_send, reason = _should_alert(result.regime, result.confidence, previous)
+
+        if should_send:
+            from flowmacro.alerts.gmail import send_alert
+            prev_str = previous or "unknown"
+            body = (
+                f"Date:            {date.today()}\n"
+                f"Regime:          {result.regime}\n"
+                f"Previous:        {prev_str}\n"
+                f"Confidence:      {result.confidence:.1f}%\n"
+                f"Growth Score:    {growth:.1f}\n"
+                f"Inflation Score: {inflation:.1f}\n"
+                f"Reason:          {reason}\n"
+                f"\nIndicators ({len(normalized_latest)}): "
+                f"{', '.join(normalized_latest.keys())}"
+            )
+            send_alert(f"Regime: {result.regime} ({result.confidence:.0f}%)", body)
+        else:
+            logger.info(f"No alert — regime unchanged ({result.regime}, confidence={result.confidence:.1f}%)")
 
         logger.info("Weekly job: done")
 

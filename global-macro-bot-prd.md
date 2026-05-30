@@ -108,7 +108,7 @@ Retail trader 90% ขาดทุนเพราะ:
 - ✅ Benchmark tracking: 60/40 portfolio (SPY 60% + TLT 40%) rebalanced รายไตรมาส
 - ✅ Streamlit dashboard สำหรับ monitor regime + signals + staleness flags + THB equivalent
 - ✅ Logging + error tracking infrastructure
-- ✅ GitHub Actions cron scheduler (daily 08:00 + Friday 08:30 Bangkok time) + LINE Notify alert เมื่อ job fail
+- ✅ GitHub Actions cron scheduler (daily 08:00 + Friday 08:30 Bangkok time) + Gmail alert เมื่อ job fail
 - ❌ **Crypto (BTC/ETH) — ออกจาก Phase 1** เพิ่มใน Phase 2 (Binance API ข้อมูลย้อนหลังไม่ครบ 20 ปี)
 
 ### 5.2 In Scope — Phase 2 (เฟส 2: เดือน 3-4)
@@ -117,7 +117,7 @@ Retail trader 90% ขาดทุนเพราะ:
 - ✅ Cross-asset correlation analysis
 - ✅ AI thesis generation (Claude API integration)
 - ✅ Position sizing engine (Kelly + risk parity)
-- ✅ Alert system (LINE Notify / Telegram)
+- ✅ Alert system (Gmail)
 
 ### 5.3 In Scope — Phase 3 (เฟส 3: เดือน 5-6)
 
@@ -287,7 +287,7 @@ Cash buffer ขั้นต่ำ **20%** ทุก regime (ยกเว้น T
 ### F5: Alert System
 - Daily morning alert (Bangkok ~8:15 AM หลัง daily job เสร็จ): regime + top opportunities
 - Real-time alert: เมื่อ regime change หรือ high-conviction signal เกิดขึ้น
-- ส่งผ่าน LINE Notify / Telegram bot
+- ส่งผ่าน Gmail (SMTP App Password)
 
 ### F6: Paper Trading Integration
 - Execute alerts ผ่าน Alpaca paper account
@@ -410,7 +410,7 @@ Phase 4+ (live trading): IBKR Singapore
 - **Action**: ไม่เปิด position ใหม่จนกว่า drawdown จะกลับมาต่ำกว่า 8%
 - **Action**: Review regime classification ว่า classify ถูกต้องหรือไม่
 - **Action**: ลด position size ของ open positions ลง 25%
-- **Notification**: Alert ผ่าน LINE พร้อม drawdown % และ open positions ทั้งหมด
+- **Notification**: Gmail alert พร้อม drawdown % และ open positions ทั้งหมด
 - **Review**: Manual review ทุกวัน (แทน weekly)
 
 ### Level 2 — Orange Alert (Drawdown 12-18%)
@@ -504,7 +504,7 @@ Phase 1 ถือว่าเสร็จสมบูรณ์เมื่อผ
 - [ ] Data ครบทุก indicator ใน 3 tiers (FRED + yfinance) — ไม่มี silent gap
 - [ ] Backtest 20 ปี (2005–2025) รันบน vectorbt ได้ → แสดง Sharpe, Max Drawdown, Annual Return เทียบ 60/40 benchmark
 - [ ] Streamlit dashboard แสดง: regime ปัจจุบัน + confidence + staleness flags + backtest summary + THB equivalent
-- [ ] LINE alert ทำงานเมื่อ data source fail — ไม่มี silent failure
+- [ ] Gmail alert ทำงานเมื่อ data source fail — ไม่มี silent failure
 - [ ] GitHub Actions cron รันตรงเวลา (daily 08:00 + Friday 08:30 Bangkok) + heartbeat commit ป้องกัน auto-pause
 
 ---
@@ -517,14 +517,14 @@ Phase 1 ถือว่าเสร็จสมบูรณ์เมื่อผ
   → คำนวณ daily indicators (SPY vs 200MA, Copper/Gold ratio, UUP trend)
   → อัปเดต staleness flags
   → บันทึกลง Supabase
-  → ถ้าข้อมูลขาดหาย → LINE alert ทันที
+  → ถ้าข้อมูลขาดหาย → Gmail alert ทันที
 
 ทุกวันศุกร์ (GitHub Actions 08:30 Bangkok time):
   → ดึง FRED data (yield curve, credit spread, CPI, unemployment, LEI ฯลฯ)
   → คำนวณ percentile rank (rolling 5 ปี) สำหรับทุก indicator
   → คำนวณ growth_score + inflation_score
   → ตัดสิน regime + confidence (distance formula)
-  → ถ้า regime เปลี่ยน หรือ confidence < 60% → LINE alert พร้อม summary
+  → ถ้า regime เปลี่ยน หรือ confidence < 60% → Gmail alert พร้อม summary
   → อัปเดต Streamlit dashboard
 ```
 
