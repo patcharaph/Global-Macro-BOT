@@ -60,6 +60,7 @@ def load_staleness() -> pd.DataFrame:
                 "regime_code", "regime_confidence",
             ]
         ))
+        from flowmacro.regime.indicators import stale_threshold
         for sid in series_ids:
             r = db.table("raw_series").select("date").eq("series_id", sid) \
                   .order("date", desc=True).limit(1).execute()
@@ -67,7 +68,8 @@ def load_staleness() -> pd.DataFrame:
                 continue
             last_date = pd.to_datetime(r.data[0]["date"]).date()
             stale = (today - last_date).days
-            status = "✅ OK" if stale <= 3 else ("⚠️ Warn" if stale <= 30 else "🔴 Stale")
+            threshold = stale_threshold(sid)
+            status = "✅ OK" if stale <= threshold else ("⚠️ Warn" if stale <= threshold * 2 else "🔴 Stale")
             rows.append({"Indicator": sid, "Last Update": str(last_date),
                          "Days Stale": stale, "Status": status})
         return pd.DataFrame(rows).sort_values("Days Stale", ascending=False)

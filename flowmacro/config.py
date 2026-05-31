@@ -22,7 +22,6 @@ class Settings:
 
     # Portfolio
     cash_buffer_pct: float = 0.20
-    transitioning_cash_pct: float = 0.50
 
 
 settings = Settings(

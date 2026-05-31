@@ -103,14 +103,18 @@ def save_backtest(result: dict, client=None) -> str:
     strat  = result["strategy"]
     bench  = result["benchmark_60_40"]
 
+    def _safe(v: float) -> float | None:
+        import math
+        return None if (v is None or math.isnan(v) or math.isinf(v)) else v
+
     row = {
         "run_id":               run_id,
         "run_date":             str(date.today()),
-        "sharpe_ratio":         strat["sharpe_ratio"],
-        "max_drawdown":         strat["max_drawdown_pct"],
-        "annual_return":        strat["total_return_pct"],
-        "benchmark_sharpe":     bench["sharpe_ratio"],
-        "benchmark_return":     bench["total_return_pct"],
+        "sharpe_ratio":         _safe(strat["sharpe_ratio"]),
+        "max_drawdown":         _safe(strat["max_drawdown_pct"]),
+        "annual_return":        _safe(strat["total_return_pct"]),
+        "benchmark_sharpe":     _safe(bench["sharpe_ratio"]),
+        "benchmark_return":     _safe(bench["total_return_pct"]),
         "outperforms_benchmark": strat["total_return_pct"] > bench["total_return_pct"],
     }
     client.table("backtest_runs").upsert(row).execute()

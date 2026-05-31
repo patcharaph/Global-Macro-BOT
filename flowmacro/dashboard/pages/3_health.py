@@ -13,37 +13,40 @@ def _db():
     return create_client(settings.supabase_url, settings.supabase_key)
 
 
-_SERIES_SOURCES = {
-    "SPY":          "yfinance",
-    "T10Y2Y":       "FRED",
-    "BAMLH0A0HYM2": "FRED",
-    "T5YIE":        "FRED",
-    "USSLIND":      "FRED",
-    "regime_code":  "pipeline",
-}
-
 _STALE_WARN = {"yfinance": 3, "FRED": 7, "pipeline": 7}
+
+
+def _build_series_sources() -> dict[str, str]:
+    from flowmacro.regime.indicators import INDICATORS
+    sources = {}
+    for ind in INDICATORS:
+        sources[ind.series_id] = "FRED" if ind.source == "fred" else "yfinance"
+    sources.update({
+        "copper_gold": "yfinance", "spy_200ma": "yfinance", "dxy_trend": "yfinance",
+        "cpi_yoy": "FRED", "SPY": "yfinance", "THB=X": "yfinance",
+        "regime_code": "pipeline", "regime_confidence": "pipeline",
+        "growth_score": "pipeline", "inflation_score": "pipeline",
+    })
+    return sources
 
 
 @st.cache_data(ttl=300)
 def load_source_health() -> pd.DataFrame:
     try:
-        r = _db().table("raw_series").select("series_id, date").execute()
-        if not r.data:
-            return pd.DataFrame()
-        df = pd.DataFrame(r.data)
-        latest = df.groupby("series_id")["date"].max()
+        _SERIES_SOURCES = _build_series_sources()
+        db = _db()
         today = date.today()
         rows = []
         for series_id, source in _SERIES_SOURCES.items():
-            last = latest.get(series_id)
-            if last is None:
+            r = db.table("raw_series").select("date").eq("series_id", series_id) \
+                  .order("date", desc=True).limit(1).execute()
+            if not r.data:
                 rows.append({"Source": source, "Series": series_id, "Last Update": "—", "Days Stale": "—", "Status": "❌ No data"})
                 continue
-            stale_days = (today - pd.to_datetime(last).date()).days
+            stale_days = (today - pd.to_datetime(r.data[0]["date"]).date()).days
             threshold = _STALE_WARN.get(source, 7)
             status = "✅ OK" if stale_days <= threshold else ("⚠️ Warn" if stale_days <= threshold * 3 else "🔴 Stale")
-            rows.append({"Source": source, "Series": series_id, "Last Update": str(last), "Days Stale": stale_days, "Status": status})
+            rows.append({"Source": source, "Series": series_id, "Last Update": r.data[0]["date"], "Days Stale": stale_days, "Status": status})
         return pd.DataFrame(rows)
     except Exception as exc:
         st.error(f"Cannot connect to Supabase: {exc}")
@@ -63,6 +66,7 @@ def load_staleness_all() -> pd.DataFrame:
                 "regime_code", "regime_confidence", "growth_score", "inflation_score",
             ]
         ))
+        from flowmacro.regime.indicators import stale_threshold
         for sid in series_ids:
             r = db.table("raw_series").select("date").eq("series_id", sid) \
                   .order("date", desc=True).limit(1).execute()
@@ -70,8 +74,10 @@ def load_staleness_all() -> pd.DataFrame:
                 continue
             last_date = pd.to_datetime(r.data[0]["date"]).date()
             stale = (today - last_date).days
+            threshold = stale_threshold(sid)
+            status = "✅" if stale <= threshold else ("⚠️" if stale <= threshold * 2 else "🔴")
             rows.append({"Series": sid, "Last Update": str(last_date), "Days Stale": stale,
-                         "Status": "✅" if stale <= 3 else ("⚠️" if stale <= 30 else "🔴")})
+                         "Status": status})
         return pd.DataFrame(rows).sort_values("Days Stale", ascending=False)
     except Exception:
         return pd.DataFrame()

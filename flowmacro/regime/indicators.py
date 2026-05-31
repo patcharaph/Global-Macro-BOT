@@ -3,6 +3,28 @@ import pandas as pd
 
 TIER_WEIGHTS = {1: 0.50, 2: 0.30, 3: 0.20}
 
+# Expected max days between updates per series (based on release frequency)
+STALE_THRESHOLD_DAYS: dict[str, int] = {
+    # Daily FRED
+    "T10Y2Y": 3, "BAA10Y": 3, "T5YIE": 3,
+    # Weekly FRED
+    "ICSA": 10,
+    # Monthly FRED / derived
+    "IPMAN": 45, "UNRATE": 45, "CPIAUCSL": 45, "cpi_yoy": 45,
+    # Quarterly FRED
+    "A191RL1Q225SBEA": 100,
+    # Price-derived (daily)
+    "copper_gold": 3, "spy_200ma": 3, "dxy_trend": 3,
+    # Pipeline outputs (weekly job)
+    "regime_code": 10, "regime_confidence": 10,
+    "growth_score": 10, "inflation_score": 10,
+}
+_DEFAULT_STALE_DAYS = 3  # fallback for price tickers
+
+
+def stale_threshold(series_id: str) -> int:
+    return STALE_THRESHOLD_DAYS.get(series_id, _DEFAULT_STALE_DAYS)
+
 
 @dataclass(frozen=True)
 class Indicator:
@@ -17,7 +39,7 @@ class Indicator:
 INDICATORS: list[Indicator] = [
     # Growth axis
     Indicator("yield_curve",   "T10Y2Y",          "growth",    1, False, "fred"),
-    Indicator("credit_spread", "BAMLH0A0HYM2",    "growth",    1, True,  "fred"),
+    Indicator("credit_spread", "BAA10Y",           "growth",    1, True,  "fred"),
     Indicator("initial_claims", "ICSA",             "growth",    1, True,  "fred"),  # inverse: higher = worse growth
     Indicator("ism_pmi",       "IPMAN",            "growth",    2, False, "fred"),  # Industrial Production: Manufacturing
     Indicator("copper_gold",   "copper_gold",      "growth",    2, False, "price"),  # derived: HG=F / GC=F

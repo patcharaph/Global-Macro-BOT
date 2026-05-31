@@ -9,7 +9,7 @@ from flowmacro.regime.scorer import compute_scores
 from flowmacro.regime.classifier import classify
 
 _FRED_SERIES = [
-    "T10Y2Y", "BAMLH0A0HYM2", "T5YIE", "ICSA",
+    "T10Y2Y", "BAA10Y", "T5YIE", "ICSA",
     "IPMAN", "UNRATE", "A191RL1Q225SBEA", "CPIAUCSL",
 ]
 
