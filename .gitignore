@@ -6,3 +6,4 @@ venv/
 *.egg-info/
 .streamlit/secrets.toml
 streamlit_err.txt
+*_export.csv
