@@ -1,4 +1,4 @@
-"""Backtest results page — shows FlowMacro vs 60/40 benchmark."""
+"""Backtest results page — FlowMacro vs 60/40 benchmark."""
 from datetime import date
 import pandas as pd
 import plotly.graph_objects as go
@@ -24,56 +24,81 @@ def load_backtest() -> dict | None:
 
 
 @st.cache_data(ttl=3600)
-def load_equity_curve() -> pd.DataFrame:
+def load_curve(series_id: str) -> pd.Series:
     try:
-        r = (
-            _db().table("raw_series")
-            .select("date, value")
-            .eq("series_id", "equity_curve")
-            .order("date")
-            .execute()
-        )
-        if not r.data:
-            return pd.DataFrame()
-        df = pd.DataFrame(r.data)
-        df["date"] = pd.to_datetime(df["date"])
-        return df.set_index("date")
+        from flowmacro.data.store import read_series
+        return read_series(series_id, start="2000-01-01")
     except Exception:
-        return pd.DataFrame()
+        return pd.Series(dtype=float)
 
 
 result = load_backtest()
 
 if result is None:
-    st.info(
-        "ยังไม่มีผล backtest — รัน backtest ด้วย `python -m flowmacro.backtest.engine` "
-        "แล้วบันทึกผลลง Supabase table `backtest_runs`"
-    )
+    st.info("ยังไม่มีผล backtest — รัน `python scripts/run_backtest.py`")
     st.stop()
 
-# ── Metrics ──────────────────────────────────────────────────────────────────
-st.caption(f"Run date: {result.get('run_date', '—')}  |  Period: {result.get('period_start', '—')} → {result.get('period_end', '—')}")
+# ── Metrics ───────────────────────────────────────────────────────────────────
+p_start = result.get("period_start") or "—"
+p_end   = result.get("period_end")   or "—"
+st.caption(f"Run date: {result.get('run_date','—')}  |  Period: {p_start} → {p_end}")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Sharpe Ratio",   f"{result.get('sharpe_ratio', 0):.2f}",   f"vs 60/40: {result.get('benchmark_sharpe', 0):.2f}")
-c2.metric("Max Drawdown",   f"{result.get('max_drawdown', 0):.1f}%",  delta_color="inverse")
-c3.metric("Annual Return",  f"{result.get('annual_return', 0):.1f}%", f"vs 60/40: {result.get('benchmark_return', 0):.1f}%")
+sharpe   = result.get("sharpe_ratio")
+b_sharpe = result.get("benchmark_sharpe")
+ret      = result.get("annual_return")
+b_ret    = result.get("benchmark_return")
+dd       = result.get("max_drawdown")
 
-outperforms = result.get("outperforms_benchmark")
-if outperforms is False:
-    st.warning("Out-of-sample Sharpe < 1.0 หรือ return ต่ำกว่า benchmark — ควร review strategy")
+c1.metric("Sharpe Ratio",  f"{sharpe:.2f}"  if sharpe is not None else "—",
+          delta=f"60/40: {b_sharpe:.2f}" if b_sharpe is not None else None)
+c2.metric("Max Drawdown",  f"{dd:.1f}%"     if dd     is not None else "—",
+          delta_color="inverse")
+c3.metric("Total Return",  f"{ret:.1f}%"    if ret    is not None else "—",
+          delta=f"60/40: {b_ret:.1f}%" if b_ret is not None else None)
+
+if result.get("outperforms_benchmark") is False:
+    st.warning("FlowMacro underperforms 60/40 — confidence threshold may need tuning")
 
 st.divider()
 
-# ── Equity curve ─────────────────────────────────────────────────────────────
-st.subheader("Equity Curve")
-eq = load_equity_curve()
-if eq.empty:
-    st.info("ไม่มีข้อมูล equity curve — ต้องบันทึก series_id='equity_curve' ลง raw_series")
+# ── Equity Curves ─────────────────────────────────────────────────────────────
+st.subheader("Equity Curve (normalised to 100)")
+
+strategy_curve  = load_curve("equity_curve")
+benchmark_curve = load_curve("equity_curve_benchmark")
+
+if strategy_curve.empty and benchmark_curve.empty:
+    st.info("ไม่มีข้อมูล equity curve — รัน `python scripts/run_backtest.py` อีกครั้ง")
 else:
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=eq.index, y=eq["value"], name="FlowMacro", line=dict(color="#2ecc71")))
-    fig.update_layout(yaxis_title="Portfolio Value (normalized)", xaxis_title="", height=400, margin=dict(t=20))
+
+    if not strategy_curve.empty:
+        fig.add_trace(go.Scatter(
+            x=strategy_curve.index, y=strategy_curve.values,
+            name="FlowMacro",
+            line=dict(color="#2ecc71", width=2),
+        ))
+
+    if not benchmark_curve.empty:
+        fig.add_trace(go.Scatter(
+            x=benchmark_curve.index, y=benchmark_curve.values,
+            name="60/40 Benchmark",
+            line=dict(color="#3498db", width=2, dash="dot"),
+        ))
+
+    fig.update_layout(
+        yaxis_title="Portfolio Value (start = 100)",
+        xaxis_title="",
+        height=420,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=10, b=40),
+    )
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
     st.plotly_chart(fig, use_container_width=True)
 
-st.caption("Backtest uses walk-forward (train 10Y, test 5Y, roll 1Y) with transaction costs 0.15% + $1/trade")
+st.caption("Transaction costs: 0.05% per trade + $1 fixed fee  |  60/40 rebalances quarterly")

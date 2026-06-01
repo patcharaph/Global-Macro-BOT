@@ -86,14 +86,23 @@ def run_backtest(
     equity = pf.value()
     equity_norm = (equity / equity.iloc[0] * 100).rename("equity_curve")
 
+    bench_equity = bench_pf.value()
+    bench_norm = (bench_equity / bench_equity.iloc[0] * 100).rename("equity_curve_benchmark")
+
     return {
-        "strategy":        _metrics(pf),
-        "benchmark_60_40": _metrics(bench_pf),
-        "equity_curve":    equity_norm,
+        "strategy":                _metrics(pf),
+        "benchmark_60_40":         _metrics(bench_pf),
+        "equity_curve":            equity_norm,
+        "equity_curve_benchmark":  bench_norm,
     }
 
 
-def save_backtest(result: dict, client=None) -> str:
+def save_backtest(
+    result: dict,
+    client=None,
+    period_start: str | None = None,
+    period_end: str | None = None,
+) -> str:
     """Save backtest result to Supabase. Returns run_id (UUID)."""
     if client is None:
         from flowmacro.data.store import _client
@@ -108,24 +117,30 @@ def save_backtest(result: dict, client=None) -> str:
         return None if (v is None or math.isnan(v) or math.isinf(v)) else v
 
     row = {
-        "run_id":               run_id,
-        "run_date":             str(date.today()),
-        "sharpe_ratio":         _safe(strat["sharpe_ratio"]),
-        "max_drawdown":         _safe(strat["max_drawdown_pct"]),
-        "annual_return":        _safe(strat["total_return_pct"]),
-        "benchmark_sharpe":     _safe(bench["sharpe_ratio"]),
-        "benchmark_return":     _safe(bench["total_return_pct"]),
+        "run_id":                run_id,
+        "run_date":              str(date.today()),
+        "sharpe_ratio":          _safe(strat["sharpe_ratio"]),
+        "max_drawdown":          _safe(strat["max_drawdown_pct"]),
+        "annual_return":         _safe(strat["total_return_pct"]),
+        "benchmark_sharpe":      _safe(bench["sharpe_ratio"]),
+        "benchmark_return":      _safe(bench["total_return_pct"]),
         "outperforms_benchmark": strat["total_return_pct"] > bench["total_return_pct"],
+        "period_start":          period_start,
+        "period_end":            period_end,
     }
     client.table("backtest_runs").upsert(row).execute()
 
-    equity: pd.Series | None = result.get("equity_curve")
-    if equity is not None and not equity.empty:
-        rows = [
-            {"series_id": "equity_curve", "date": str(idx.date()), "value": float(val)}
-            for idx, val in equity.items()
-            if pd.notna(val)
-        ]
-        client.table("raw_series").upsert(rows, on_conflict="series_id,date").execute()
+    for series_id, curve in [
+        ("equity_curve",           result.get("equity_curve")),
+        ("equity_curve_benchmark", result.get("equity_curve_benchmark")),
+    ]:
+        if curve is not None and not curve.empty:
+            rows = [
+                {"series_id": series_id, "date": str(idx.date()), "value": float(val)}
+                for idx, val in curve.items()
+                if pd.notna(val)
+            ]
+            for i in range(0, len(rows), 500):
+                client.table("raw_series").upsert(rows[i:i+500], on_conflict="series_id,date").execute()
 
     return run_id

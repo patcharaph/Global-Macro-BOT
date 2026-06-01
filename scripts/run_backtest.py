@@ -8,6 +8,7 @@ Usage:
     python scripts/run_backtest.py
 """
 import sys
+from datetime import date
 from pathlib import Path
 
 # Allow running from repo root without installing the package
@@ -98,7 +99,7 @@ def main() -> None:
     logger.info(f"FlowMacro:  Sharpe={strat['sharpe_ratio']:.2f}  Return={strat['total_return_pct']:.1f}%  MaxDD={strat['max_drawdown_pct']:.1f}%")
     logger.info(f"60/40 Bench: Sharpe={bench['sharpe_ratio']:.2f}  Return={bench['total_return_pct']:.1f}%  MaxDD={bench['max_drawdown_pct']:.1f}%")
 
-    run_id = save_backtest(result)
+    run_id = save_backtest(result, period_start=_START_BACKTEST, period_end=str(date.today()))
     logger.info(f"Saved → Supabase backtest_runs  run_id={run_id}")
     logger.info("Done — refresh the Backtest page in the dashboard to see results.")
 
