@@ -98,6 +98,38 @@ def load_staleness() -> pd.DataFrame:
         return pd.DataFrame()
 
 
+@st.cache_data(ttl=300)
+def load_latest_thesis() -> dict | None:
+    try:
+        r = _db().table("thesis_runs").select("*").order("created_at", desc=True).limit(1).execute()
+        return r.data[0] if r.data else None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600)
+def load_cot_series() -> dict[str, pd.Series]:
+    """Load last 52 weeks of COT net speculative positions from Supabase."""
+    from flowmacro.data.store import read_series
+    from datetime import timedelta
+    start = str((date.today() - timedelta(weeks=52)))
+    result = {}
+    labels = {
+        "cot_sp500_net":       "S&P 500",
+        "cot_treasury10y_net": "10Y Treasury",
+        "cot_gold_net":        "Gold",
+        "cot_crude_net":       "Crude Oil",
+    }
+    for sid, label in labels.items():
+        try:
+            s = read_series(sid, start=start)
+            if not s.empty:
+                result[label] = s
+        except Exception:
+            pass
+    return result
+
+
 @st.cache_data(ttl=3600)
 def load_thb_rate() -> float | None:
     try:
@@ -240,6 +272,127 @@ else:
 
     if bt.get("outperforms_benchmark") is False:
         st.warning("FlowMacro underperforms 60/40 — confidence threshold may need tuning")
+
+st.divider()
+
+# ── AI Thesis ─────────────────────────────────────────────────────────────────
+st.subheader("AI Macro Thesis")
+
+thesis = load_latest_thesis()
+
+col_thesis_hdr, col_thesis_btn = st.columns([3, 1])
+with col_thesis_hdr:
+    if thesis:
+        st.caption(f"Generated: {thesis.get('run_date','—')}  |  Regime: {thesis.get('regime','—')}  |  Model: {thesis.get('model','—')}")
+    else:
+        st.caption("No thesis yet — run weekly job or click Generate.")
+
+with col_thesis_btn:
+    if st.button("Generate Thesis", type="secondary", disabled=(latest is None)):
+        if latest:
+            try:
+                from flowmacro.thesis.generator import generate_thesis, save_thesis
+                with st.spinner("Calling OpenRouter..."):
+                    t = generate_thesis(
+                        latest["regime"],
+                        float(latest["confidence"]),
+                        float(latest["growth_score"]),
+                        float(latest["inflation_score"]),
+                    )
+                    save_thesis(t)
+                st.success(f"Thesis generated (conviction {t.conviction}/10)")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed: {exc}")
+
+if thesis:
+    conv = thesis.get("conviction", 0)
+    conv_color = "#2ecc71" if conv >= 7 else ("#f1c40f" if conv >= 4 else "#e74c3c")
+    st.markdown(
+        f"<span style='font-size:2rem;font-weight:bold;color:{conv_color}'>"
+        f"Conviction {conv}/10</span>",
+        unsafe_allow_html=True,
+    )
+    t_col1, t_col2 = st.columns(2)
+    with t_col1:
+        st.markdown("**คำแนะนำ**")
+        st.info(thesis.get("recommendation", "—"))
+        st.markdown("**เหตุผล**")
+        st.write(thesis.get("reasoning", "—"))
+    with t_col2:
+        st.markdown("**ความเสี่ยง**")
+        st.warning(thesis.get("risks", "—"))
+
+st.divider()
+
+# ── COT Signals ───────────────────────────────────────────────────────────────
+st.subheader("COT — Net Speculative Positioning")
+cot_data = load_cot_series()
+
+if not cot_data:
+    st.info("No COT data yet — run weekly job first.")
+else:
+    cot_cols = st.columns(len(cot_data))
+    colors = {"S&P 500": "#2ecc71", "10Y Treasury": "#3498db", "Gold": "#f1c40f", "Crude Oil": "#e67e22"}
+    for col, (label, series) in zip(cot_cols, cot_data.items()):
+        with col:
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=series.index, y=series.values,
+                mode="lines", line=dict(color=colors.get(label, "#95a5a6"), width=2),
+                fill="tozeroy", fillcolor=colors.get(label, "#95a5a6").replace(")", ",0.15)").replace("rgb", "rgba") if "rgb" in colors.get(label, "") else colors.get(label, "#95a5a6") + "26",
+                hovertemplate="%{x|%Y-%m-%d}<br>Net: %{y:,.0f}<extra></extra>",
+                showlegend=False,
+            ))
+            fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dot"))
+            last_val = series.iloc[-1] if not series.empty else 0
+            fig.update_layout(
+                title=dict(text=f"{label}<br><sup>{last_val:+,.0f}</sup>", font=dict(size=12)),
+                height=180, margin=dict(l=5, r=5, t=40, b=5),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(showgrid=False, color="rgba(255,255,255,0.4)"),
+                yaxis=dict(showgrid=False, color="rgba(255,255,255,0.4)", tickformat=".2s"),
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+st.divider()
+
+# ── Portfolio Weights ─────────────────────────────────────────────────────────
+st.subheader("Portfolio Allocation by Regime")
+from flowmacro.portfolio.allocator import REGIME_WEIGHTS
+
+all_tickers = sorted({t for weights in REGIME_WEIGHTS.values() for t in weights})
+palette = [
+    "#2ecc71","#3498db","#e74c3c","#f1c40f","#9b59b6",
+    "#1abc9c","#e67e22","#34495e","#95a5a6","#e91e63","#ff5722","#607d8b",
+]
+ticker_color = {t: palette[i % len(palette)] for i, t in enumerate(all_tickers)}
+
+regime_order = ["GOLDILOCKS", "REFLATION", "STAGFLATION", "DEFLATION"]
+fig_w = go.Figure()
+for ticker in all_tickers:
+    y_vals = [REGIME_WEIGHTS.get(r, {}).get(ticker, 0) * 100 for r in regime_order]
+    fig_w.add_trace(go.Bar(
+        name=ticker, x=regime_order, y=y_vals,
+        marker_color=ticker_color[ticker],
+        text=[f"{v:.0f}%" if v > 0 else "" for v in y_vals],
+        textposition="inside", textfont=dict(size=10),
+        hovertemplate=f"{ticker}: %{{y:.1f}}%<extra></extra>",
+    ))
+
+fig_w.update_layout(
+    barmode="stack",
+    height=300,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+                font=dict(size=10)),
+    margin=dict(l=10, r=10, t=30, b=10),
+    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+    xaxis=dict(color="rgba(255,255,255,0.6)"),
+    yaxis=dict(color="rgba(255,255,255,0.6)", title="% of Portfolio", ticksuffix="%",
+               range=[0, 85]),
+)
+st.plotly_chart(fig_w, use_container_width=True, config={"displayModeBar": False})
 
 st.divider()
 st.caption("FlowMacro — personal use only, not investment advice")

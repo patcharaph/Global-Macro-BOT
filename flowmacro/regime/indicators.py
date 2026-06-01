@@ -18,6 +18,9 @@ STALE_THRESHOLD_DAYS: dict[str, int] = {
     # Pipeline outputs (weekly job)
     "regime_code": 10, "regime_confidence": 10,
     "growth_score": 10, "inflation_score": 10,
+    # COT (weekly CFTC release, Friday)
+    "cot_sp500_net": 10, "cot_treasury10y_net": 10,
+    "cot_gold_net": 10, "cot_crude_net": 10,
 }
 _DEFAULT_STALE_DAYS = 3  # fallback for price tickers
 
@@ -50,6 +53,11 @@ INDICATORS: list[Indicator] = [
     Indicator("breakeven_5y",  "T5YIE",            "inflation", 1, False, "fred"),
     Indicator("dxy_trend",     "dxy_trend",        "inflation", 2, True,  "price"),  # derived: (UUP/20MA - 1) * 100
     Indicator("cpi_yoy",       "cpi_yoy",          "inflation", 3, False, "fred"),   # derived: CPIAUCSL YoY %
+    # COT indicators (speculative net positioning, weekly)
+    Indicator("cot_sp500",      "cot_sp500_net",      "growth",    2, False, "cot"),
+    Indicator("cot_treasury10y","cot_treasury10y_net","growth",    2, True,  "cot"),  # inverse: net long bonds = risk-off
+    Indicator("cot_gold",       "cot_gold_net",       "inflation", 2, False, "cot"),
+    Indicator("cot_crude",      "cot_crude_net",      "inflation", 3, False, "cot"),
 ]
 
 

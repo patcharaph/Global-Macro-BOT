@@ -17,6 +17,7 @@ _PRICE_TICKERS = [
 # Fetch 7 days to cover weekends/holidays — full history is already in Supabase
 _START_SEED  = "2005-01-01"   # used only by scripts/seed.py
 _START_DAILY = str(date.today() - timedelta(days=7))
+_BTC_START_DAILY = str(date.today() - timedelta(days=7))
 
 
 def run() -> None:
@@ -91,6 +92,15 @@ def run() -> None:
             send_alert("Data Staleness Warning", f"Stale series (>3 days):\n{lines}")
         except Exception:
             pass
+
+    # ── 5. BTC price from Binance ─────────────────────────────────────────────────
+    try:
+        from flowmacro.data.sources.binance import fetch_btc_price
+        btc = fetch_btc_price(start=_BTC_START_DAILY)
+        upsert_series("BTC-USD", btc.dropna())
+        logger.info(f"BTC-USD: {len(btc)} rows upserted")
+    except Exception as exc:
+        logger.warning(f"BTC fetch skipped: {exc}")
 
     logger.info("Daily job: done")
 

@@ -1,22 +1,40 @@
-REGIME_ASSETS: dict[str, list[str]] = {
-    "GOLDILOCKS":    ["SPY", "QQQ", "IWM", "EFA", "EEM"],
-    "REFLATION":     ["GLD", "SLV", "DBC", "USO", "EEM", "IWM"],
-    "STAGFLATION":   ["GLD", "SLV", "DBC", "UUP"],
-    "DEFLATION":     ["TLT", "IEF", "UUP"],
-    "TRANSITIONING": [],  # 100% cash in backtest
-}
+_CASH_BUFFER = 0.20
+_INVESTABLE = 1.0 - _CASH_BUFFER  # 0.80
 
-_CASH_BUFFER = 0.20  # minimum cash for non-TRANSITIONING regimes
+# Weights are fractions of total capital; each regime sums to _INVESTABLE.
+# If a ticker is unavailable the remainder is rescaled to maintain _INVESTABLE.
+REGIME_WEIGHTS: dict[str, dict[str, float]] = {
+    "GOLDILOCKS": {
+        "SPY": 0.24, "QQQ": 0.16, "IWM": 0.12,
+        "EFA": 0.12, "EEM": 0.08, "BTC-USD": 0.08,
+    },
+    "REFLATION": {
+        "GLD": 0.20, "SLV": 0.10, "DBC": 0.20,
+        "USO": 0.15, "EEM": 0.10, "IWM": 0.05,
+    },
+    "STAGFLATION": {
+        "GLD": 0.30, "SLV": 0.15, "DBC": 0.20, "UUP": 0.15,
+    },
+    "DEFLATION": {
+        "TLT": 0.40, "IEF": 0.25, "UUP": 0.15,
+    },
+    "TRANSITIONING": {},
+}
 
 
 def get_weights(regime: str, available_tickers: list[str]) -> dict[str, float]:
-    """Equal-weight allocation for the regime, limited to available tickers."""
-    target = REGIME_ASSETS.get(regime, [])
-    holdings = [t for t in target if t in available_tickers]
+    """Return portfolio weights for the regime, limited to available tickers.
+
+    Weights are fractions of total capital. If target tickers are missing,
+    the remaining weights are rescaled so total invested stays at _INVESTABLE.
+    Returns empty dict when all tickers are unavailable (100% cash).
+    """
+    target = REGIME_WEIGHTS.get(regime, {})
+    holdings = {t: w for t, w in target.items() if t in available_tickers}
 
     if not holdings:
-        return {}  # 100% cash
+        return {}
 
-    investable = 1.0 - _CASH_BUFFER
-    w = investable / len(holdings)
-    return {t: w for t in holdings}
+    allocated = sum(holdings.values())
+    scale = _INVESTABLE / allocated
+    return {t: w * scale for t, w in holdings.items()}

@@ -14,6 +14,7 @@ class Settings:
     gmail_sender: str = ""
     gmail_app_password: str = ""
     gmail_recipient: str = ""
+    openrouter_api_key: str = ""
 
     # Regime engine
     rolling_window_years: int = 5
@@ -31,4 +32,5 @@ settings = Settings(
     gmail_sender=os.getenv("GMAIL_SENDER", ""),
     gmail_app_password=os.getenv("GMAIL_APP_PASSWORD", ""),
     gmail_recipient=os.getenv("GMAIL_RECIPIENT", ""),
+    openrouter_api_key=os.getenv("OPENROUTER_API_KEY", ""),
 )

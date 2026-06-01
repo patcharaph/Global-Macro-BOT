@@ -12,9 +12,14 @@ _FRED_SERIES = [
     "T10Y2Y", "BAA10Y", "T5YIE", "ICSA",
     "IPMAN", "UNRATE", "A191RL1Q225SBEA", "CPIAUCSL",
 ]
+_COT_SERIES = [
+    "cot_sp500_net", "cot_treasury10y_net",
+    "cot_gold_net",  "cot_crude_net",
+]
 
 _START_FETCH = "2005-01-01"
 _START_COMPUTE = "2019-01-01"  # 6 years for 5-year rolling window + buffer
+_START_COT = str(date.today().year - 1) + "-01-01"  # previous + current year
 
 _REGIME_CODE = {
     "GOLDILOCKS": 1, "REFLATION": 2,
@@ -67,6 +72,15 @@ def run() -> None:
             except Exception as exc:
                 logger.warning(f"FRED {series_id} skipped: {exc}")
 
+        # 2b. Fetch and store COT indicators
+        from flowmacro.data.sources.cot import fetch_cot_net
+        for cot_id in _COT_SERIES:
+            try:
+                cot_data = fetch_cot_net(cot_id, start=_START_COT)
+                upsert_series(cot_id, cot_data)
+            except Exception as exc:
+                logger.warning(f"COT {cot_id} skipped: {exc}")
+
         # Compute CPI YoY (% change from 12 months ago)
         cpi_raw = read_series("CPIAUCSL", start="2004-01-01")
         if not cpi_raw.empty:
@@ -117,6 +131,23 @@ def run() -> None:
         previous = _previous_regime()
         should_send, reason = _should_alert(result.regime, result.confidence, previous)
 
+        # 7. Generate AI thesis
+        thesis_body = ""
+        try:
+            from flowmacro.thesis.generator import generate_thesis, save_thesis
+            thesis = generate_thesis(result.regime, result.confidence, growth, inflation)
+            save_thesis(thesis)
+            thesis_body = (
+                f"\n\n{'─'*40}\n"
+                f"AI THESIS (conviction {thesis.conviction}/10)\n"
+                f"คำแนะนำ:   {thesis.recommendation}\n"
+                f"เหตุผล:     {thesis.reasoning}\n"
+                f"ความเสี่ยง: {thesis.risks}"
+            )
+            logger.info(f"Thesis generated: conviction={thesis.conviction}/10")
+        except Exception as exc:
+            logger.warning(f"Thesis generation skipped: {exc}")
+
         if should_send:
             from flowmacro.alerts.gmail import send_alert
             prev_str = previous or "unknown"
@@ -130,6 +161,7 @@ def run() -> None:
                 f"Reason:          {reason}\n"
                 f"\nIndicators ({len(normalized_latest)}): "
                 f"{', '.join(normalized_latest.keys())}"
+                f"{thesis_body}"
             )
             send_alert(f"Regime: {result.regime} ({result.confidence:.0f}%)", body)
         else:
