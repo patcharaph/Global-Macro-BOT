@@ -127,6 +127,16 @@ def run() -> None:
         upsert_series("growth_score",      pd.Series([growth], index=[today_ts]))
         upsert_series("inflation_score",   pd.Series([inflation], index=[today_ts]))
 
+        # 5b. Paper trading — update persistent virtual portfolio
+        paper_summary = ""
+        try:
+            from flowmacro.broker.paper_portfolio import update as paper_update
+            paper_summary = paper_update(result.regime, date.today())
+            if paper_summary:
+                logger.info(f"Paper portfolio updated:\n{paper_summary}")
+        except Exception as exc:
+            logger.warning(f"Paper portfolio update skipped: {exc}")
+
         # 6. Alert — only on regime change or low confidence
         previous = _previous_regime()
         should_send, reason = _should_alert(result.regime, result.confidence, previous)
@@ -151,6 +161,7 @@ def run() -> None:
         if should_send:
             from flowmacro.alerts.gmail import send_alert
             prev_str = previous or "unknown"
+            paper_section = f"\n\n{'─'*40}\n{paper_summary}" if paper_summary else ""
             body = (
                 f"Date:            {date.today()}\n"
                 f"Regime:          {result.regime}\n"
@@ -162,6 +173,7 @@ def run() -> None:
                 f"\nIndicators ({len(normalized_latest)}): "
                 f"{', '.join(normalized_latest.keys())}"
                 f"{thesis_body}"
+                f"{paper_section}"
             )
             send_alert(f"Regime: {result.regime} ({result.confidence:.0f}%)", body)
         else:

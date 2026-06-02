@@ -1,8 +1,11 @@
+import time
 import pandas as pd
 from loguru import logger
 from flowmacro.config import settings
 
 _BATCH = 500
+_RETRIES = 3
+_RETRY_BASE_DELAY = 2  # seconds; doubles each attempt
 
 
 def _client():
@@ -10,6 +13,21 @@ def _client():
         raise EnvironmentError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
     from supabase import create_client
     return create_client(settings.supabase_url, settings.supabase_key)
+
+
+def _upsert_batch(client, rows: list[dict]) -> None:
+    """Upsert one batch with exponential-backoff retry."""
+    delay = _RETRY_BASE_DELAY
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            client.table("raw_series").upsert(rows, on_conflict="series_id,date").execute()
+            return
+        except Exception as exc:
+            if attempt == _RETRIES:
+                raise
+            logger.warning(f"Supabase upsert attempt {attempt}/{_RETRIES} failed: {exc} — retrying in {delay}s")
+            time.sleep(delay)
+            delay *= 2
 
 
 def upsert_series(series_id: str, data: pd.Series) -> int:
@@ -21,7 +39,7 @@ def upsert_series(series_id: str, data: pd.Series) -> int:
         if pd.notna(val)
     ]
     for i in range(0, len(rows), _BATCH):
-        client.table("raw_series").upsert(rows[i : i + _BATCH], on_conflict="series_id,date").execute()
+        _upsert_batch(client, rows[i : i + _BATCH])
     logger.debug(f"Supabase upsert {series_id}: {len(rows)} rows")
     return len(rows)
 

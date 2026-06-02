@@ -6,7 +6,7 @@ from flowmacro.config import settings
 
 _SMTP_HOST = "smtp.gmail.com"
 _SMTP_PORT = 587
-_RETRIES = 2
+_RETRIES = 3
 
 
 def send_alert(subject: str, body: str) -> bool:

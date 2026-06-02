@@ -1,4 +1,4 @@
-"""Backtest results page — FlowMacro vs 60/40 benchmark."""
+"""Backtest results page — FlowMacro vs 60/40 and SPY benchmarks."""
 from datetime import date
 import pandas as pd
 import plotly.graph_objects as go
@@ -7,7 +7,7 @@ from supabase import create_client
 from flowmacro.config import settings
 
 st.set_page_config(page_title="Backtest — FlowMacro", layout="wide")
-st.title("Backtest: FlowMacro vs 60/40")
+st.title("Backtest: FlowMacro vs 60/40 & SPY")
 
 
 def _db():
@@ -43,7 +43,7 @@ p_start = result.get("period_start") or "—"
 p_end   = result.get("period_end")   or "—"
 st.caption(f"Run date: {result.get('run_date','—')}  |  Period: {p_start} → {p_end}")
 
-c1, c2, c3 = st.columns(3)
+c1, c2, c3, c4 = st.columns(4)
 sharpe   = result.get("sharpe_ratio")
 b_sharpe = result.get("benchmark_sharpe")
 ret      = result.get("annual_return")
@@ -51,11 +51,26 @@ b_ret    = result.get("benchmark_return")
 dd       = result.get("max_drawdown")
 
 c1.metric("Sharpe Ratio",  f"{sharpe:.2f}"  if sharpe is not None else "—",
-          delta=f"60/40: {b_sharpe:.2f}" if b_sharpe is not None else None)
+          delta=f"vs 60/40: {b_sharpe:.2f}" if b_sharpe is not None else None)
 c2.metric("Max Drawdown",  f"{dd:.1f}%"     if dd     is not None else "—",
           delta_color="inverse")
 c3.metric("Total Return",  f"{ret:.1f}%"    if ret    is not None else "—",
-          delta=f"60/40: {b_ret:.1f}%" if b_ret is not None else None)
+          delta=f"vs 60/40: {b_ret:.1f}%" if b_ret is not None else None)
+
+# Branch B pass/fail criteria
+_PASS_SHARPE = 0.7
+_PASS_DD     = 25.0
+with c4:
+    st.markdown("**Branch B criteria**")
+    if sharpe is not None:
+        icon = "✅" if sharpe >= _PASS_SHARPE else "❌"
+        st.caption(f"{icon} Sharpe ≥ 0.7: {sharpe:.2f}")
+    if dd is not None:
+        icon = "✅" if dd <= _PASS_DD else "❌"
+        st.caption(f"{icon} Max DD ≤ 25%: {dd:.1f}%")
+    if result.get("outperforms_benchmark") is not None:
+        icon = "✅" if result["outperforms_benchmark"] else "❌"
+        st.caption(f"{icon} Beats benchmark")
 
 if result.get("outperforms_benchmark") is False:
     st.warning("FlowMacro underperforms 60/40 — confidence threshold may need tuning")
