@@ -436,39 +436,55 @@ st.divider()
 
 # ── Portfolio Weights ─────────────────────────────────────────────────────────
 st.subheader("Portfolio Allocation by Regime")
+st.caption("แต่ละ regime ถือ 80% ของ portfolio (20% cash buffer) — hover เพื่อดูสัดส่วน")
 from flowmacro.portfolio.allocator import REGIME_WEIGHTS
 
-all_tickers = sorted({t for weights in REGIME_WEIGHTS.values() for t in weights})
-palette = [
-    "#2ecc71","#3498db","#e74c3c","#f1c40f","#9b59b6",
-    "#1abc9c","#e67e22","#34495e","#95a5a6","#e91e63","#ff5722","#607d8b",
+_PIE_COLORS = [
+    "#00ff88","#00d4ff","#ffcc00","#ff4466","#bf5fff",
+    "#ff8800","#00ffcc","#ff66aa","#88ff00","#4488ff","#ffaa00","#aa44ff",
 ]
-ticker_color = {t: palette[i % len(palette)] for i, t in enumerate(all_tickers)}
+_REGIME_NEON = {
+    "GOLDILOCKS":  "#00ff88",
+    "REFLATION":   "#ffcc00",
+    "STAGFLATION": "#ff4466",
+    "DEFLATION":   "#00d4ff",
+}
 
 regime_order = ["GOLDILOCKS", "REFLATION", "STAGFLATION", "DEFLATION"]
-fig_w = go.Figure()
-for ticker in all_tickers:
-    y_vals = [REGIME_WEIGHTS.get(r, {}).get(ticker, 0) * 100 for r in regime_order]
-    fig_w.add_trace(go.Bar(
-        name=ticker, x=regime_order, y=y_vals,
-        marker_color=ticker_color[ticker],
-        text=[f"{v:.0f}%" if v > 0 else "" for v in y_vals],
-        textposition="inside", textfont=dict(size=10),
-        hovertemplate=f"{ticker}: %{{y:.1f}}%<extra></extra>",
-    ))
+pie_cols = st.columns(4)
 
-fig_w.update_layout(
-    barmode="stack",
-    height=300,
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
-                font=dict(size=10)),
-    margin=dict(l=10, r=10, t=30, b=10),
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    xaxis=dict(color="rgba(255,255,255,0.6)"),
-    yaxis=dict(color="rgba(255,255,255,0.6)", title="% of Portfolio", ticksuffix="%",
-               range=[0, 85]),
-)
-st.plotly_chart(fig_w, use_container_width=True, config={"displayModeBar": False})
+for col, regime in zip(pie_cols, regime_order):
+    weights = REGIME_WEIGHTS.get(regime, {})
+    # Add 20% cash buffer as explicit slice
+    labels  = list(weights.keys()) + ["Cash"]
+    values  = [w * 100 for w in weights.values()] + [20.0]
+    colors  = [_PIE_COLORS[i % len(_PIE_COLORS)] for i in range(len(weights))] + ["#333355"]
+
+    fig_pie = go.Figure(go.Pie(
+        labels=labels,
+        values=values,
+        textinfo="label+percent",
+        textposition="inside",
+        textfont=dict(size=10, family="monospace"),
+        marker=dict(colors=colors, line=dict(color="#080c1a", width=2)),
+        hovertemplate="%{label}: %{value:.0f}%<extra></extra>",
+        sort=False,
+        hole=0.25,
+    ))
+    neon = _REGIME_NEON[regime]
+    fig_pie.update_layout(
+        title=dict(
+            text=f"<b>{regime}</b>",
+            font=dict(size=12, color=neon, family="monospace"),
+            x=0.5, xanchor="center",
+        ),
+        showlegend=False,
+        height=260,
+        margin=dict(l=5, r=5, t=35, b=5),
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+    with col:
+        st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
 
 with st.expander("คำอธิบาย Ticker Symbols", expanded=False):
     st.markdown("""
