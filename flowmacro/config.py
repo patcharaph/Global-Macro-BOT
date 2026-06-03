@@ -19,7 +19,7 @@ class Settings:
     # Regime engine
     rolling_window_years: int = 5
     confidence_enter: float = 40.0   # below = TRANSITIONING
-    confidence_exit: float = 50.0    # above = exit TRANSITIONING
+    confidence_exit: float = 50.0   # above = exit TRANSITIONING
 
     # Portfolio
     cash_buffer_pct: float = 0.20
