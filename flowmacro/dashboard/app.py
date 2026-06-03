@@ -133,8 +133,11 @@ def load_cot_series() -> dict[str, pd.Series]:
 @st.cache_data(ttl=3600)
 def load_thb_rate() -> float | None:
     try:
-        fx = yf.download("THB=X", period="2d", progress=False, auto_adjust=True)
-        return float(fx["Close"].iloc[-1]) if not fx.empty else None
+        fx = yf.download("THB=X", period="5d", progress=False, auto_adjust=True)
+        if fx.empty:
+            return None
+        close = fx["Close"].squeeze()
+        return float(close.dropna().iloc[-1])
     except Exception:
         return None
 
@@ -142,8 +145,11 @@ def load_thb_rate() -> float | None:
 @st.cache_data(ttl=3600)
 def load_vix() -> float | None:
     try:
-        vix = yf.download("^VIX", period="2d", progress=False, auto_adjust=True)
-        return float(vix["Close"].iloc[-1]) if not vix.empty else None
+        vix = yf.download("^VIX", period="5d", progress=False, auto_adjust=True)
+        if vix.empty:
+            return None
+        close = vix["Close"].squeeze()
+        return float(close.dropna().iloc[-1])
     except Exception:
         return None
 
