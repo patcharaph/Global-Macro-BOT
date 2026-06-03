@@ -1,5 +1,6 @@
 """Backtest results page — FlowMacro vs 60/40 and SPY benchmarks."""
-from datetime import date
+from datetime import date, datetime
+import math
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -43,12 +44,25 @@ p_start = result.get("period_start") or "—"
 p_end   = result.get("period_end")   or "—"
 st.caption(f"Run date: {result.get('run_date','—')}  |  Period: {p_start} → {p_end}")
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c5 = st.columns(5)
 sharpe   = result.get("sharpe_ratio")
 b_sharpe = result.get("benchmark_sharpe")
-ret      = result.get("annual_return")
+ret      = result.get("annual_return")   # total return (naming in DB)
 b_ret    = result.get("benchmark_return")
 dd       = result.get("max_drawdown")
+
+# ── Compute CAGR ──────────────────────────────────────────────────────────────
+def _cagr(total_pct: float | None, start: str, end: str) -> float | None:
+    if total_pct is None or not start or not end or start == "—" or end == "—":
+        return None
+    try:
+        years = (datetime.strptime(end, "%Y-%m-%d") - datetime.strptime(start, "%Y-%m-%d")).days / 365.25
+        return (math.pow(1 + total_pct / 100, 1 / years) - 1) * 100 if years > 0 else None
+    except Exception:
+        return None
+
+cagr   = _cagr(ret,   p_start, p_end)
+b_cagr = _cagr(b_ret, p_start, p_end)
 
 c1.metric("Sharpe Ratio", f"{sharpe:.2f}" if sharpe is not None else "—",
           delta=f"vs 60/40: {b_sharpe:.2f}" if b_sharpe is not None else None,
@@ -56,14 +70,17 @@ c1.metric("Sharpe Ratio", f"{sharpe:.2f}" if sharpe is not None else "—",
 c2.metric("Max Drawdown", f"{dd:.1f}%" if dd is not None else "—",
           delta_color="inverse",
           help="การลดลงสูงสุดจาก peak ถึง trough ตลอด backtest period\nยิ่งต่ำยิ่งดี — เกณฑ์ผ่าน: ≤ 25%")
-c3.metric("Total Return", f"{ret:.1f}%" if ret is not None else "—",
+c3.metric("Annual Return (CAGR)", f"{cagr:.1f}%" if cagr is not None else "—",
+          delta=f"vs 60/40: {b_cagr:.1f}%" if b_cagr is not None else None,
+          help="Compound Annual Growth Rate — ผลตอบแทนทบต้นเฉลี่ยต่อปี\nสูตร: (1 + total_return)^(1/years) − 1")
+c4.metric("Total Return", f"{ret:.1f}%" if ret is not None else "—",
           delta=f"vs 60/40: {b_ret:.1f}%" if b_ret is not None else None,
           help="ผลตอบแทนสะสมตลอด period (ไม่ใช่ต่อปี)\n60/40 Benchmark = SPY 60% + TLT 40%")
 
 # Branch B pass/fail criteria
 _PASS_SHARPE = 0.7
 _PASS_DD     = 25.0
-with c4:
+with c5:
     st.markdown("**Branch B criteria**")
     if sharpe is not None:
         icon = "✅" if sharpe >= _PASS_SHARPE else "❌"
