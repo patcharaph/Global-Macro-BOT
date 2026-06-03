@@ -56,8 +56,8 @@ def run_backtest(
         close=prices,
         size=weights,
         size_type="targetpercent",
-        fees=0.0005,
-        fixed_fees=1.0,
+        fees=0.001,       # 0.1% round-trip (realistic ETF commission on IBKR)
+        fixed_fees=0.0,   # removed: $1 fixed fee destroys small-capital backtests
         init_cash=init_cash,
         freq="1D",
         group_by=True,
@@ -75,8 +75,8 @@ def run_backtest(
         close=bench_prices,
         size=bench_weights,
         size_type="targetpercent",
-        fees=0.0005,
-        fixed_fees=1.0,
+        fees=0.001,
+        fixed_fees=0.0,
         init_cash=init_cash,
         freq="1D",
         group_by=True,

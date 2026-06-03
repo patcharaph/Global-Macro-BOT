@@ -9,8 +9,9 @@ REGIME_WEIGHTS: dict[str, dict[str, float]] = {
         "EFA": 0.12, "EEM": 0.08, "BTC-USD": 0.08,
     },
     "REFLATION": {
-        "GLD": 0.20, "SLV": 0.10, "DBC": 0.20,
-        "USO": 0.15, "EEM": 0.10, "IWM": 0.05,
+        # ~40% equities (growth driver), ~40% commodities (inflation hedge)
+        "SPY": 0.16, "EEM": 0.16, "IWM": 0.08,
+        "GLD": 0.16, "DBC": 0.16, "USO": 0.08,
     },
     "STAGFLATION": {
         "GLD": 0.30, "SLV": 0.15, "DBC": 0.20, "UUP": 0.15,
