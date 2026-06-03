@@ -44,6 +44,25 @@ def upsert_series(series_id: str, data: pd.Series) -> int:
     return len(rows)
 
 
+def upsert_regime_history(
+    run_date: str,
+    regime: str,
+    confidence: float,
+    growth_score: float,
+    inflation_score: float,
+) -> None:
+    """Upsert one row into regime_history (conflict key: run_date)."""
+    client = _client()
+    client.table("regime_history").upsert({
+        "run_date":        run_date,
+        "regime":          regime,
+        "confidence":      round(confidence, 2),
+        "growth_score":    round(growth_score, 2),
+        "inflation_score": round(inflation_score, 2),
+    }, on_conflict="run_date").execute()
+    logger.debug(f"regime_history upsert: {run_date} {regime} conf={confidence:.1f}")
+
+
 def read_series(series_id: str, start: str, end: str | None = None) -> pd.Series:
     """Read a time series from raw_series. Paginates to bypass PostgREST row limit."""
     client = _client()

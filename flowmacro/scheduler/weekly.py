@@ -127,6 +127,12 @@ def run() -> None:
         upsert_series("growth_score",      pd.Series([growth], index=[today_ts]))
         upsert_series("inflation_score",   pd.Series([inflation], index=[today_ts]))
 
+        # 5c. Write to regime_history (queryable history table, one row per week)
+        from flowmacro.data.store import upsert_regime_history
+        upsert_regime_history(
+            str(date.today()), result.regime, result.confidence, growth, inflation
+        )
+
         # 5b. Paper trading — update persistent virtual portfolio
         paper_summary = ""
         try:
