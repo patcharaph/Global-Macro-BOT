@@ -139,6 +139,35 @@ def load_thb_rate() -> float | None:
         return None
 
 
+@st.cache_data(ttl=3600)
+def load_vix() -> float | None:
+    try:
+        vix = yf.download("^VIX", period="2d", progress=False, auto_adjust=True)
+        return float(vix["Close"].iloc[-1]) if not vix.empty else None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=300)
+def load_paper_portfolio() -> dict | None:
+    try:
+        from flowmacro.data.store import read_series
+        s = read_series("paper_total_value", start="2020-01-01")
+        if s.empty:
+            return None
+        current   = float(s.dropna().iloc[-1])
+        last_date = s.last_valid_index().date()
+        pnl_pct   = (current / 3_000.0 - 1) * 100
+        return {"value_usd": current, "pnl_pct": pnl_pct, "as_of": str(last_date)}
+    except Exception:
+        return None
+
+
+def _days_to_next_friday() -> int:
+    days_ahead = 4 - date.today().weekday()   # Friday = weekday 4
+    return days_ahead if days_ahead > 0 else days_ahead + 7
+
+
 def _quadrant_chart(growth: float, inflation: float, regime: str) -> go.Figure:
     color = _REGIME_COLOR.get(regime, "#95a5a6")
     fig = go.Figure()
@@ -218,21 +247,48 @@ st.subheader(f"{icon}  **{label}**  (as of {run_date or '—'})")
 if regime:
     st.caption(_REGIME_DESC.get(regime, ""))
 
-thb_rate = load_thb_rate()
+thb_rate   = load_thb_rate()
+vix        = load_vix()
+paper      = load_paper_portfolio()
+days_fri   = _days_to_next_friday()
 
 col_metrics, col_chart = st.columns([1, 1])
 
 with col_metrics:
+    # Row 1 — Confidence + Next Rebalance
     c1, c2 = st.columns(2)
     c1.metric("Confidence", f"{confidence:.1f}" if confidence is not None else "—",
               help="ความมั่นใจในการจำแนก regime (0–100)\n= |Growth−50| + |Inflation−50|\nยิ่งสูง signal ยิ่งชัด  •  < 8 = TRANSITIONING")
-    c2.metric("THB/USD", f"{thb_rate:.2f}" if thb_rate is not None else "—",
-              help="อัตราแลกเปลี่ยนบาทต่อดอลลาร์สหรัฐ (real-time จาก yfinance THB=X)")
+    c2.metric("Next Rebalance",
+              f"{days_fri} day{'s' if days_fri != 1 else ''}" if days_fri > 0 else "Today (Friday!)",
+              help="จำนวนวันถึง Friday — วัน rebalance ถัดไปของ weekly job\nGitHub Actions รัน 08:30 Bangkok")
+
+    # Row 2 — Growth + Inflation
     c3, c4 = st.columns(2)
     c3.metric("Growth Score", f"{growth_score:.1f}" if growth_score is not None else "—",
               help="คะแนน 0–100 วัด momentum ของเศรษฐกิจ\n> 50 = เศรษฐกิจขยายตัว  •  < 50 = ชะลอตัว\nรวม 10 indicators: yield curve, credit spread, initial claims, PMI, copper/gold, SPY/200MA, COT S&P500, COT Treasury, unemployment, GDP")
     c4.metric("Inflation Score", f"{inflation_score:.1f}" if inflation_score is not None else "—",
               help="คะแนน 0–100 วัดแรงกดดันเงินเฟ้อ\n> 50 = เงินเฟ้อสูงกว่าเป้า  •  < 50 = ต่ำกว่าเป้า\nT5YIE 2% = 50, CPI 2% = 50 (absolute scale)\nรวม 5 indicators: 5Y breakeven, DXY trend, COT gold, COT crude, CPI YoY")
+
+    # Row 3 — VIX + Paper Portfolio
+    c5, c6 = st.columns(2)
+    if vix is not None:
+        vix_label = "😌 ต่ำ" if vix < 15 else ("😐 ปกติ" if vix < 20 else ("😟 สูง" if vix < 30 else "😱 วิกฤต"))
+        c5.metric("VIX", f"{vix:.1f}  {vix_label}",
+                  help="CBOE Volatility Index — ความกลัวของตลาดสหรัฐ\n< 15 = สงบ  •  15–20 = ปกติ  •  20–30 = กังวล  •  > 30 = วิกฤต")
+    else:
+        c5.metric("VIX", "—")
+
+    if paper:
+        thb_equiv = f" / ฿{paper['value_usd'] * thb_rate:,.0f}" if thb_rate else ""
+        c6.metric("Paper Portfolio",
+                  f"${paper['value_usd']:,.0f}{thb_equiv}",
+                  delta=f"{paper['pnl_pct']:+.1f}% since start",
+                  delta_color="normal",
+                  help=f"Virtual portfolio เริ่มต้น $3,000 (≈ ฿{3000*thb_rate:,.0f} ที่ rate {thb_rate:.2f})\nอัปเดต: {paper['as_of']}" if thb_rate else "Virtual portfolio เริ่มต้น $3,000")
+    else:
+        c6.metric("Paper Portfolio", "Initialised",
+                  help="Paper portfolio $3,000 เพิ่งเริ่มต้น\nP&L จะแสดงหลังจาก weekly job รันครั้งถัดไป (Friday)")
 
     st.divider()
 
