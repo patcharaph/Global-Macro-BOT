@@ -18,7 +18,7 @@ import pandas as pd
 import yfinance as yf
 from loguru import logger
 
-from flowmacro.data.store import read_series
+from flowmacro.data.store import read_series, upsert_series
 from flowmacro.regime.indicators import INDICATORS, normalize
 from flowmacro.regime.scorer import compute_scores
 from flowmacro.regime.classifier import classify_series
@@ -31,6 +31,12 @@ _TICKERS = [
     "SPY", "QQQ", "IWM", "EFA", "EEM",
     "GLD", "SLV", "DBC", "USO",
     "TLT", "IEF", "UUP",
+    # BTC-USD excluded: no clean ETF history before 2013; add when extending to post-2017
+]
+
+_COT_SERIES = [
+    "cot_sp500_net", "cot_treasury10y_net",
+    "cot_gold_net",  "cot_crude_net",
 ]
 
 
@@ -76,8 +82,23 @@ def fetch_prices() -> pd.DataFrame:
     return prices
 
 
+def seed_cot_history() -> None:
+    """Fetch full COT history from CFTC (2005→today) and upsert to Supabase."""
+    from flowmacro.data.sources.cot import fetch_cot_net
+    for cot_id in _COT_SERIES:
+        try:
+            data = fetch_cot_net(cot_id, start=_START_WARMUP)
+            upsert_series(cot_id, data)
+            logger.info(f"COT {cot_id}: {len(data)} weeks upserted (from {data.index[0].date()})")
+        except Exception as exc:
+            logger.warning(f"COT {cot_id} seed failed: {exc}")
+
+
 def main() -> None:
     logger.info("=== FlowMacro Backtest ===")
+
+    logger.info("Step 0/3 — Seeding COT history from 2005...")
+    seed_cot_history()
 
     logger.info("Step 1/3 — Building historical regime series...")
     regime_series = build_regime_series()

@@ -5,8 +5,8 @@ TIER_WEIGHTS = {1: 0.50, 2: 0.30, 3: 0.20}
 
 # Expected max days between updates per series (based on release frequency)
 STALE_THRESHOLD_DAYS: dict[str, int] = {
-    # Daily FRED
-    "T10Y2Y": 3, "BAA10Y": 3, "T5YIE": 3,
+    # Daily FRED (5 days to tolerate weekends + bank holidays)
+    "T10Y2Y": 5, "BAA10Y": 5, "T5YIE": 5,
     # Weekly FRED
     "ICSA": 10,
     # Monthly FRED / derived
