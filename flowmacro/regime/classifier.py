@@ -18,12 +18,23 @@ class RegimeResult:
     inflation_score: float
 
 
+def _confidence(g: float, i: float) -> float:
+    """Average deviation of both axes from neutral (50).
+
+    Uses average instead of min so that a clear signal on one axis
+    (e.g. strong growth with neutral inflation) still registers as
+    confident, rather than being suppressed by the other axis.
+    Max value = 100 (both axes at extreme 0 or 100).
+    """
+    return (abs(g - 50) + abs(i - 50))
+
+
 def classify(growth_score: float, inflation_score: float) -> RegimeResult:
     """Classify a single (growth, inflation) pair into a regime."""
     if pd.isna(growth_score) or pd.isna(inflation_score):
         return RegimeResult("TRANSITIONING", float("nan"), growth_score, inflation_score)
 
-    confidence = min(2 * abs(growth_score - 50), 2 * abs(inflation_score - 50))
+    confidence = _confidence(growth_score, inflation_score)
 
     if confidence < settings.confidence_enter:
         regime = "TRANSITIONING"
@@ -46,7 +57,7 @@ def classify_series(scores_df: pd.DataFrame) -> pd.DataFrame:
                          "growth_score": g, "inflation_score": i})
             continue
 
-        confidence = min(2 * abs(g - 50), 2 * abs(i - 50))
+        confidence = _confidence(g, i)
 
         if in_transitioning:
             if confidence >= settings.confidence_exit:
