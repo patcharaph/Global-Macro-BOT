@@ -5,3 +5,8 @@ enableXsrfProtection = true
 
 [theme]
 base = "dark"
+primaryColor       = "#00d4ff"   # neon cyan — buttons, sliders, highlights
+backgroundColor    = "#080c1a"   # deep space black-blue
+secondaryBackgroundColor = "#0f1629"   # sidebar + card backgrounds
+textColor          = "#e2e8f5"   # soft blue-white text
+font               = "monospace"

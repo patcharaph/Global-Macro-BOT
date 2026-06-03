@@ -16,11 +16,11 @@ _REGIME_ICON = {
     "TRANSITIONING": "⚪",
 }
 _REGIME_COLOR = {
-    "GOLDILOCKS":    "#2ecc71",
-    "REFLATION":     "#f1c40f",
-    "STAGFLATION":   "#e74c3c",
-    "DEFLATION":     "#3498db",
-    "TRANSITIONING": "#95a5a6",
+    "GOLDILOCKS":    "#00ff88",   # neon green
+    "REFLATION":     "#ffcc00",   # neon yellow
+    "STAGFLATION":   "#ff4466",   # neon red-pink
+    "DEFLATION":     "#00d4ff",   # neon cyan
+    "TRANSITIONING": "#8888aa",   # muted grey-blue
 }
 _REGIME_DESC = {
     "GOLDILOCKS":    "Growth ↑  Inflation ↓ — risk-on: equities, EM, small cap",
@@ -144,44 +144,50 @@ def _quadrant_chart(growth: float, inflation: float, regime: str) -> go.Figure:
     fig = go.Figure()
 
     quads = [
-        (0, 50, 50, 100, "rgba(52,152,219,0.15)"),
-        (50, 50, 100, 100, "rgba(46,204,113,0.15)"),
-        (0, 0, 50, 50, "rgba(231,76,60,0.15)"),
-        (50, 0, 100, 50, "rgba(241,196,15,0.15)"),
+        (0, 50, 50, 100, "rgba(0,212,255,0.08)"),     # DEFLATION — neon cyan tint
+        (50, 50, 100, 100, "rgba(0,255,136,0.08)"),    # GOLDILOCKS — neon green tint
+        (0, 0, 50, 50, "rgba(255,68,102,0.08)"),       # STAGFLATION — neon red tint
+        (50, 0, 100, 50, "rgba(255,204,0,0.08)"),      # REFLATION — neon yellow tint
     ]
     for x0, y0, x1, y1, fill in quads:
         fig.add_shape(type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
                       fillcolor=fill, line_width=0, layer="below")
 
     for x, y, text in [
-        (25, 75, "🔵 DEFLATION"), (75, 75, "🟢 GOLDILOCKS"),
-        (25, 25, "🔴 STAGFLATION"), (75, 25, "🟡 REFLATION"),
+        (25, 75, "DEFLATION"), (75, 75, "GOLDILOCKS"),
+        (25, 25, "STAGFLATION"), (75, 25, "REFLATION"),
     ]:
+        quad_color = {"DEFLATION":"#00d4ff","GOLDILOCKS":"#00ff88",
+                      "STAGFLATION":"#ff4466","REFLATION":"#ffcc00"}[text]
         fig.add_annotation(x=x, y=y, text=text, showarrow=False,
-                           font=dict(size=11, color="rgba(255,255,255,0.55)"),
-                           xanchor="center", yanchor="middle")
+                           font=dict(size=10, color=quad_color, family="monospace"),
+                           xanchor="center", yanchor="middle", opacity=0.6)
 
     fig.add_shape(type="line", x0=50, y0=0, x1=50, y1=100,
-                  line=dict(color="rgba(255,255,255,0.25)", width=1, dash="dot"))
+                  line=dict(color="rgba(0,212,255,0.3)", width=1, dash="dot"))
     fig.add_shape(type="line", x0=0, y0=50, x1=100, y1=50,
-                  line=dict(color="rgba(255,255,255,0.25)", width=1, dash="dot"))
+                  line=dict(color="rgba(0,212,255,0.3)", width=1, dash="dot"))
 
     fig.add_trace(go.Scatter(
         x=[growth], y=[inflation],
         mode="markers+text",
         text=["NOW"],
         textposition="top center",
-        textfont=dict(size=10, color="white"),
-        marker=dict(size=18, color=color, line=dict(width=2, color="white")),
+        textfont=dict(size=10, color=color, family="monospace"),
+        marker=dict(size=18, color=color,
+                    line=dict(width=2, color="white"),
+                    symbol="circle"),
         hovertemplate=f"Growth: {growth:.1f}<br>Inflation: {inflation:.1f}<extra></extra>",
         showlegend=False,
     ))
 
     fig.update_layout(
         xaxis=dict(range=[0, 100], title="Growth Score", showgrid=False,
-                   tickvals=[0, 25, 50, 75, 100], color="rgba(255,255,255,0.5)"),
+                   tickvals=[0, 25, 50, 75, 100],
+                   color="rgba(0,212,255,0.6)", title_font=dict(color="rgba(0,212,255,0.8)")),
         yaxis=dict(range=[0, 100], title="Inflation Score", showgrid=False,
-                   tickvals=[0, 25, 50, 75, 100], color="rgba(255,255,255,0.5)"),
+                   tickvals=[0, 25, 50, 75, 100],
+                   color="rgba(0,212,255,0.6)", title_font=dict(color="rgba(0,212,255,0.8)")),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
         height=300,
