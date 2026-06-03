@@ -50,12 +50,15 @@ ret      = result.get("annual_return")
 b_ret    = result.get("benchmark_return")
 dd       = result.get("max_drawdown")
 
-c1.metric("Sharpe Ratio",  f"{sharpe:.2f}"  if sharpe is not None else "—",
-          delta=f"vs 60/40: {b_sharpe:.2f}" if b_sharpe is not None else None)
-c2.metric("Max Drawdown",  f"{dd:.1f}%"     if dd     is not None else "—",
-          delta_color="inverse")
-c3.metric("Total Return",  f"{ret:.1f}%"    if ret    is not None else "—",
-          delta=f"vs 60/40: {b_ret:.1f}%" if b_ret is not None else None)
+c1.metric("Sharpe Ratio", f"{sharpe:.2f}" if sharpe is not None else "—",
+          delta=f"vs 60/40: {b_sharpe:.2f}" if b_sharpe is not None else None,
+          help="Return ÷ Risk (annualised)\n> 1.0 = ดีมาก  •  > 0.7 = ผ่านเกณฑ์  •  < 0 = แย่กว่า cash\n60/40 = SPY 60% + TLT 40% rebalance รายไตรมาส")
+c2.metric("Max Drawdown", f"{dd:.1f}%" if dd is not None else "—",
+          delta_color="inverse",
+          help="การลดลงสูงสุดจาก peak ถึง trough ตลอด backtest period\nยิ่งต่ำยิ่งดี — เกณฑ์ผ่าน: ≤ 25%")
+c3.metric("Total Return", f"{ret:.1f}%" if ret is not None else "—",
+          delta=f"vs 60/40: {b_ret:.1f}%" if b_ret is not None else None,
+          help="ผลตอบแทนสะสมตลอด period (ไม่ใช่ต่อปี)\n60/40 Benchmark = SPY 60% + TLT 40%")
 
 # Branch B pass/fail criteria
 _PASS_SHARPE = 0.7
@@ -116,4 +119,4 @@ else:
     fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
     st.plotly_chart(fig, use_container_width=True)
 
-st.caption("Transaction costs: 0.05% per trade + $1 fixed fee  |  60/40 rebalances quarterly")
+st.caption("Transaction costs: 0.1% round-trip per rebalance  |  60/40 rebalances quarterly  |  Init capital: $3,000")

@@ -218,11 +218,15 @@ col_metrics, col_chart = st.columns([1, 1])
 
 with col_metrics:
     c1, c2 = st.columns(2)
-    c1.metric("Confidence",      f"{confidence:.1f}%"     if confidence      is not None else "—")
-    c2.metric("THB/USD",         f"{thb_rate:.2f}"         if thb_rate        is not None else "—")
+    c1.metric("Confidence", f"{confidence:.1f}" if confidence is not None else "—",
+              help="ความมั่นใจในการจำแนก regime (0–100)\n= |Growth−50| + |Inflation−50|\nยิ่งสูง signal ยิ่งชัด  •  < 8 = TRANSITIONING")
+    c2.metric("THB/USD", f"{thb_rate:.2f}" if thb_rate is not None else "—",
+              help="อัตราแลกเปลี่ยนบาทต่อดอลลาร์สหรัฐ (real-time จาก yfinance THB=X)")
     c3, c4 = st.columns(2)
-    c3.metric("Growth Score",    f"{growth_score:.1f}"    if growth_score    is not None else "—")
-    c4.metric("Inflation Score", f"{inflation_score:.1f}" if inflation_score is not None else "—")
+    c3.metric("Growth Score", f"{growth_score:.1f}" if growth_score is not None else "—",
+              help="คะแนน 0–100 วัด momentum ของเศรษฐกิจ\n> 50 = เศรษฐกิจขยายตัว  •  < 50 = ชะลอตัว\nรวม 10 indicators: yield curve, credit spread, initial claims, PMI, copper/gold, SPY/200MA, COT S&P500, COT Treasury, unemployment, GDP")
+    c4.metric("Inflation Score", f"{inflation_score:.1f}" if inflation_score is not None else "—",
+              help="คะแนน 0–100 วัดแรงกดดันเงินเฟ้อ\n> 50 = เงินเฟ้อสูงกว่าเป้า  •  < 50 = ต่ำกว่าเป้า\nT5YIE 2% = 50, CPI 2% = 50 (absolute scale)\nรวม 5 indicators: 5Y breakeven, DXY trend, COT gold, COT crude, CPI YoY")
 
     st.divider()
 
@@ -328,6 +332,11 @@ st.divider()
 
 # ── COT Signals ───────────────────────────────────────────────────────────────
 st.subheader("COT — Net Speculative Positioning")
+st.caption(
+    "**COT (Commitments of Traders)** = รายงานของ CFTC (ออกทุกศุกร์) แสดง net position ของ "
+    "Non-Commercial traders (hedge funds / speculators) ในตลาด futures  "
+    "**บวก** = long net (คาดราคาขึ้น)  •  **ลบ** = short net (คาดราคาลง)  •  หน่วย: จำนวน contracts"
+)
 cot_data = load_cot_series()
 
 if not cot_data:
@@ -346,17 +355,18 @@ else:
                 x=series.index, y=series.values,
                 mode="lines", line=dict(color=colors.get(label, "#95a5a6"), width=2),
                 fill="tozeroy", fillcolor=_hex_to_rgba(colors.get(label, "#95a5a6")),
-                hovertemplate="%{x|%Y-%m-%d}<br>Net: %{y:,.0f}<extra></extra>",
+                hovertemplate="%{x|%Y-%m-%d}<br>Net: %{y:,.0f} contracts<extra></extra>",
                 showlegend=False,
             ))
             fig.add_hline(y=0, line=dict(color="rgba(255,255,255,0.3)", width=1, dash="dot"))
             last_val = series.iloc[-1] if not series.empty else 0
             fig.update_layout(
-                title=dict(text=f"{label}<br><sup>{last_val:+,.0f}</sup>", font=dict(size=12)),
-                height=180, margin=dict(l=5, r=5, t=40, b=5),
+                title=dict(text=f"{label}<br><sup>{last_val:+,.0f} contracts</sup>", font=dict(size=12)),
+                height=200, margin=dict(l=5, r=5, t=45, b=30),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
                 xaxis=dict(showgrid=False, color="rgba(255,255,255,0.4)"),
-                yaxis=dict(showgrid=False, color="rgba(255,255,255,0.4)", tickformat=".2s"),
+                yaxis=dict(showgrid=False, color="rgba(255,255,255,0.4)", tickformat=".2s",
+                           title="contracts", title_standoff=4),
             )
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
@@ -397,6 +407,24 @@ fig_w.update_layout(
                range=[0, 85]),
 )
 st.plotly_chart(fig_w, use_container_width=True, config={"displayModeBar": False})
+
+with st.expander("คำอธิบาย Ticker Symbols", expanded=False):
+    st.markdown("""
+| Ticker | ชื่อเต็ม | ประเภท |
+|--------|----------|--------|
+| **SPY** | SPDR S&P 500 ETF | หุ้นสหรัฐ Large Cap |
+| **QQQ** | Invesco Nasdaq 100 ETF | หุ้นเทคโนโลยีสหรัฐ |
+| **IWM** | iShares Russell 2000 ETF | หุ้นสหรัฐ Small Cap |
+| **EFA** | iShares MSCI EAFE ETF | หุ้นตลาดพัฒนาแล้ว (ยุโรป/ญี่ปุ่น) |
+| **EEM** | iShares MSCI Emerging Markets ETF | หุ้นตลาดเกิดใหม่ |
+| **TLT** | iShares 20+ Year Treasury Bond ETF | พันธบัตรรัฐบาลสหรัฐ อายุ 20+ ปี |
+| **IEF** | iShares 7-10 Year Treasury Bond ETF | พันธบัตรรัฐบาลสหรัฐ อายุ 7-10 ปี |
+| **GLD** | SPDR Gold Shares ETF | ทองคำ |
+| **SLV** | iShares Silver Trust ETF | เงิน (Silver) |
+| **DBC** | Invesco DB Commodity Index ETF | สินค้าโภคภัณฑ์หลากหลาย |
+| **USO** | United States Oil Fund ETF | น้ำมันดิบ WTI |
+| **UUP** | Invesco DB US Dollar Index ETF | ดัชนีค่าเงินดอลลาร์ (DXY) |
+""")
 
 st.divider()
 st.caption("FlowMacro — personal use only, not investment advice")
