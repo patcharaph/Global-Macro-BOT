@@ -108,6 +108,9 @@ def save_backtest(
         from flowmacro.data.store import _client
         client = _client()
 
+    # Remove any existing runs for the same date so the dashboard always shows the latest
+    client.table("backtest_runs").delete().eq("run_date", str(date.today())).execute()
+
     run_id = str(uuid.uuid4())
     strat  = result["strategy"]
     bench  = result["benchmark_60_40"]
