@@ -279,8 +279,8 @@ with col_metrics:
     # Row 3 — VIX + Paper Portfolio
     c5, c6 = st.columns(2)
     if vix is not None:
-        vix_label = "😌 ต่ำ" if vix < 15 else ("😐 ปกติ" if vix < 20 else ("😟 สูง" if vix < 30 else "😱 วิกฤต"))
-        c5.metric("VIX", f"{vix:.1f}  {vix_label}",
+        vix_label = "ต่ำ" if vix < 15 else ("ปกติ" if vix < 20 else ("สูง" if vix < 30 else "วิกฤต"))
+        c5.metric("VIX", f"{vix:.1f}  [{vix_label}]",
                   help="CBOE Volatility Index — ความกลัวของตลาดสหรัฐ\n< 15 = สงบ  •  15–20 = ปกติ  •  20–30 = กังวล  •  > 30 = วิกฤต")
     else:
         c5.metric("VIX", "—")
