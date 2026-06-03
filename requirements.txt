@@ -1,3 +1,6 @@
+# Install the flowmacro package itself (required for Streamlit Cloud)
+-e .
+
 # Core
 python-dotenv>=1.0.0
 pandas>=2.0.0
@@ -14,9 +17,3 @@ supabase>=2.0.0
 # Dashboard
 streamlit>=1.35.0
 plotly>=5.0.0
-
-# Backtest (local only — not needed for dashboard/cloud)
-vectorbt>=0.26.0
-
-# Validation scripts
-matplotlib>=3.8.0
