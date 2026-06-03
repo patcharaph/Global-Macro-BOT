@@ -335,13 +335,17 @@ if not cot_data:
 else:
     cot_cols = st.columns(len(cot_data))
     colors = {"S&P 500": "#2ecc71", "10Y Treasury": "#3498db", "Gold": "#f1c40f", "Crude Oil": "#e67e22"}
+    def _hex_to_rgba(hex_color: str, alpha: float = 0.15) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
     for col, (label, series) in zip(cot_cols, cot_data.items()):
         with col:
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=series.index, y=series.values,
                 mode="lines", line=dict(color=colors.get(label, "#95a5a6"), width=2),
-                fill="tozeroy", fillcolor=colors.get(label, "#95a5a6").replace(")", ",0.15)").replace("rgb", "rgba") if "rgb" in colors.get(label, "") else colors.get(label, "#95a5a6") + "26",
+                fill="tozeroy", fillcolor=_hex_to_rgba(colors.get(label, "#95a5a6")),
                 hovertemplate="%{x|%Y-%m-%d}<br>Net: %{y:,.0f}<extra></extra>",
                 showlegend=False,
             ))
