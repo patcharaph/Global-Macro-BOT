@@ -18,8 +18,8 @@ class Settings:
 
     # Regime engine
     rolling_window_years: int = 5
-    confidence_enter: float = 8.0    # below = TRANSITIONING  (avg |g-50|+|i-50| < 8)
-    confidence_exit: float = 12.0   # above = exit TRANSITIONING
+    confidence_enter: float = 15.0   # below = TRANSITIONING  (raised from 8→15: SHY/GLD basket productive)
+    confidence_exit: float = 20.0    # above = exit TRANSITIONING (raised from 12→20)
 
     # Portfolio
     cash_buffer_pct: float = 0.20

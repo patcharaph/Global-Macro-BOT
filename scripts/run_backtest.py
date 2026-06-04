@@ -30,7 +30,7 @@ _START_BACKTEST = "2010-01-01"
 _TICKERS = [
     "SPY", "QQQ", "IWM", "EFA", "EEM",
     "GLD", "SLV", "DBC", "USO",
-    "TLT", "IEF", "UUP",
+    "TLT", "IEF", "SHY", "UUP",
     # BTC-USD excluded: no clean ETF history before 2013; add when extending to post-2017
 ]
 
@@ -116,12 +116,46 @@ def main() -> None:
     strat = result["strategy"]
     bench = result["benchmark_60_40"]
 
-    logger.info("=== Results ===")
+    logger.info("=== Full Backtest Results ===")
     logger.info(f"FlowMacro:  Sharpe={strat['sharpe_ratio']:.2f}  Return={strat['total_return_pct']:.1f}%  MaxDD={strat['max_drawdown_pct']:.1f}%")
     logger.info(f"60/40 Bench: Sharpe={bench['sharpe_ratio']:.2f}  Return={bench['total_return_pct']:.1f}%  MaxDD={bench['max_drawdown_pct']:.1f}%")
 
+    # ── IS / OOS validation (acceptance criteria: IS Sharpe ≥ 0.70, OOS Sharpe ≥ 0.50) ──
+    _IS_END    = "2019-12-31"
+    _OOS_START = "2020-01-01"
+    _IS_TARGET  = 0.70
+    _OOS_TARGET = 0.50
+
+    logger.info("\n=== In-Sample / Out-of-Sample Validation ===")
+    try:
+        is_prices  = prices[prices.index <= _IS_END]
+        is_regime  = regime_series[regime_series.index <= _IS_END]
+        is_result  = run_backtest(is_prices, is_regime)
+        is_s  = is_result["strategy"]
+        is_b  = is_result["benchmark_60_40"]
+        is_pass = is_s["sharpe_ratio"] >= _IS_TARGET
+
+        oos_prices = prices[prices.index >= _OOS_START]
+        oos_regime = regime_series[regime_series.index >= _OOS_START]
+        oos_result = run_backtest(oos_prices, oos_regime)
+        oos_s  = oos_result["strategy"]
+        oos_b  = oos_result["benchmark_60_40"]
+        oos_pass = oos_s["sharpe_ratio"] >= _OOS_TARGET
+
+        logger.info(f"In-sample  2010–2019: Sharpe={is_s['sharpe_ratio']:.2f}  Bench={is_b['sharpe_ratio']:.2f}  MaxDD={is_s['max_drawdown_pct']:.1f}%  {'PASS' if is_pass else 'FAIL'}  (target >={_IS_TARGET})")
+        logger.info(f"Out-sample 2020–now : Sharpe={oos_s['sharpe_ratio']:.2f}  Bench={oos_b['sharpe_ratio']:.2f}  MaxDD={oos_s['max_drawdown_pct']:.1f}%  {'PASS' if oos_pass else 'FAIL'}  (target >={_OOS_TARGET})")
+
+        if is_pass and oos_pass:
+            logger.info("=> BOTH PASS — V2 weights ready for deployment")
+        elif not is_pass and not oos_pass:
+            logger.info("=> BOTH FAIL — run grid search: equity/commodity 45/35, 50/30, 55/25")
+        else:
+            logger.info(f"=> PARTIAL — IS={'PASS' if is_pass else 'FAIL'}, OOS={'PASS' if oos_pass else 'FAIL'} — review allocation")
+    except Exception as exc:
+        logger.warning(f"IS/OOS split failed: {exc}")
+
     run_id = save_backtest(result, period_start=_START_BACKTEST, period_end=str(date.today()))
-    logger.info(f"Saved → Supabase backtest_runs  run_id={run_id}")
+    logger.info(f"\nSaved → Supabase backtest_runs  run_id={run_id}")
     logger.info("Done — refresh the Backtest page in the dashboard to see results.")
 
 

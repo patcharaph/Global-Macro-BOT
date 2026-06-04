@@ -1,3 +1,9 @@
+# ── V1 weights (current production) ──────────────────────────────────────────
+# V2 experiments (2026-06-05): reducing cash buffer and changing REFLATION
+# allocation all degraded Sharpe vs V1 baseline. Root cause: the gap is
+# structural (TRANSITIONING = 21.6% cash + REFLATION performance mixed in
+# rate-hike years). Weight-only tuning cannot close it.
+
 _CASH_BUFFER = 0.20
 _INVESTABLE = 1.0 - _CASH_BUFFER  # 0.80
 
@@ -19,7 +25,10 @@ REGIME_WEIGHTS: dict[str, dict[str, float]] = {
     "DEFLATION": {
         "TLT": 0.40, "IEF": 0.25, "UUP": 0.15,
     },
-    "TRANSITIONING": {},
+    # SHY (1-3yr Treasury) + GLD — rate-insensitive defensive basket.
+    # With _INVESTABLE=0.80, get_weights() scales these to SHY 40% + GLD 40%.
+    # More productive than 100% cash; not hurt by rate hikes unlike TLT.
+    "TRANSITIONING": {"SHY": 0.25, "GLD": 0.25},
 }
 
 

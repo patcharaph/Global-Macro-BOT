@@ -7,7 +7,7 @@ from flowmacro.data.store import upsert_series
 
 _PRICE_TICKERS = [
     "SPY", "QQQ", "IWM", "EFA", "EEM", "FXI", "EWJ",
-    "TLT", "IEF", "HYG",
+    "TLT", "IEF", "SHY", "HYG",
     "GLD", "USO", "DBC", "SLV",
     "UUP", "FXE", "FXY",
     "HG=F", "GC=F",
