@@ -133,6 +133,26 @@ def run() -> None:
             str(date.today()), result.regime, result.confidence, growth, inflation
         )
 
+        # 5d. Shadow ML prediction (does not affect portfolio — logging only)
+        try:
+            from flowmacro.regime.ml_predictor import predict_ml
+            from flowmacro.data.store import upsert_ml_regime_history
+            ml_features = {**normalized_latest, "growth_score": growth, "inflation_score": inflation}
+            ml_regime, ml_confidence = predict_ml(ml_features)
+            agrees = ml_regime == result.regime
+            upsert_ml_regime_history(str(date.today()), ml_regime, ml_confidence, result.regime)
+            logger.info(
+                f"ML shadow: regime={ml_regime} confidence={ml_confidence:.1f} "
+                f"agrees_with_rb={agrees}"
+            )
+        except Exception as exc:
+            logger.error(f"ML shadow failed: {exc}")
+            try:
+                from flowmacro.alerts.gmail import send_alert
+                send_alert("FlowMacro ML Shadow FAILED", str(exc))
+            except Exception:
+                pass
+
         # 5b. Paper trading — update persistent virtual portfolio
         paper_summary = ""
         try:

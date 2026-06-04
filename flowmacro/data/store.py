@@ -63,6 +63,27 @@ def upsert_regime_history(
     logger.debug(f"regime_history upsert: {run_date} {regime} conf={confidence:.1f}")
 
 
+def upsert_ml_regime_history(
+    run_date: str,
+    ml_regime: str,
+    ml_confidence: float,
+    rb_regime: str,
+) -> None:
+    """Upsert one row into regime_history_ml (shadow mode tracking table)."""
+    client = _client()
+    client.table("regime_history_ml").upsert({
+        "run_date":      run_date,
+        "ml_regime":     ml_regime,
+        "ml_confidence": round(ml_confidence, 2),
+        "rb_regime":     rb_regime,
+        "agrees":        ml_regime == rb_regime,
+    }, on_conflict="run_date").execute()
+    logger.debug(
+        f"regime_history_ml upsert: {run_date} ml={ml_regime} rb={rb_regime} "
+        f"agrees={ml_regime == rb_regime}"
+    )
+
+
 def read_series(series_id: str, start: str, end: str | None = None) -> pd.Series:
     """Read a time series from raw_series. Paginates to bypass PostgREST row limit."""
     client = _client()

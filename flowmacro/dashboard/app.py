@@ -169,6 +169,44 @@ def load_paper_portfolio() -> dict | None:
         return None
 
 
+@st.cache_data(ttl=300)
+def load_regime_history(weeks: int = 52) -> pd.DataFrame:
+    try:
+        from datetime import timedelta
+        start = str((date.today() - timedelta(weeks=weeks)).isoformat())
+        r = _db().table("regime_history").select("run_date,regime").gte("run_date", start).order("run_date").execute()
+        if not r.data:
+            return pd.DataFrame()
+        df = pd.DataFrame(r.data)
+        df["run_date"] = pd.to_datetime(df["run_date"])
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def load_ml_shadow() -> dict:
+    try:
+        rows = (
+            _db().table("regime_history_ml")
+            .select("run_date,ml_regime,ml_confidence,rb_regime,agrees")
+            .order("run_date", desc=True).limit(26)
+            .execute().data
+        )
+        if not rows:
+            return {"active": True, "n_weeks": 0, "rows": []}
+        n = len(rows)
+        return {
+            "active":         True,
+            "n_weeks":        n,
+            "latest":         rows[0],
+            "agreement_rate": sum(1 for x in rows if x["agrees"]) / n * 100,
+            "rows":           rows,
+        }
+    except Exception:
+        return {"active": False, "n_weeks": 0, "rows": []}
+
+
 def _days_to_next_friday() -> int:
     days_ahead = 4 - date.today().weekday()   # Friday = weekday 4
     return days_ahead if days_ahead > 0 else days_ahead + 7
@@ -227,6 +265,72 @@ def _quadrant_chart(growth: float, inflation: float, regime: str) -> go.Figure:
         paper_bgcolor="rgba(0,0,0,0)",
         height=300,
         margin=dict(l=50, r=10, t=10, b=50),
+    )
+    return fig
+
+
+def _regime_timeline_chart(rb_df: pd.DataFrame, ml_rows: list) -> go.Figure:
+    fig = go.Figure()
+
+    def _add_band(pairs: list[tuple], y0: float, y1: float, row_label: str, x_anchor):
+        if not pairs:
+            return
+        segments: list[tuple] = []
+        cur_r, seg_start = None, None
+        for dt, regime in pairs:
+            if regime != cur_r:
+                if cur_r is not None:
+                    segments.append((seg_start, dt, cur_r))
+                cur_r, seg_start = regime, dt
+        if cur_r:
+            segments.append((seg_start, pairs[-1][0] + pd.Timedelta(weeks=1), cur_r))
+
+        for start, end, regime in segments:
+            color = _REGIME_COLOR.get(regime, "#888888")
+            fig.add_shape(type="rect", x0=start, x1=end, y0=y0, y1=y1,
+                          fillcolor=color, opacity=0.75, line_width=0, layer="below")
+            if (end - start).days / 7 >= 5:
+                fig.add_annotation(
+                    x=start + (end - start) / 2, y=(y0 + y1) / 2,
+                    text=regime[:4], showarrow=False,
+                    font=dict(size=8, color="rgba(0,0,0,0.8)", family="monospace"),
+                    xanchor="center", yanchor="middle",
+                )
+
+        fig.add_annotation(x=x_anchor, y=(y0 + y1) / 2, text=row_label,
+                           showarrow=False, xref="paper",
+                           font=dict(size=9, color="rgba(180,180,220,0.7)", family="monospace"),
+                           xanchor="right", yanchor="middle", xshift=-6)
+
+    if rb_df.empty:
+        return fig
+    rb_pairs = list(zip(rb_df["run_date"], rb_df["regime"]))
+    _add_band(rb_pairs, 0.55, 1.0, "Rule", 0)
+
+    if ml_rows:
+        ml_pairs = sorted(
+            [(pd.to_datetime(r["run_date"]), r["ml_regime"]) for r in ml_rows],
+            key=lambda x: x[0],
+        )
+        _add_band(ml_pairs, 0.0, 0.45, "ML", 0)
+    else:
+        fig.add_annotation(x=0.5, y=0.22, text="ML accumulating...",
+                           showarrow=False, xref="paper", yref="y",
+                           font=dict(size=9, color="rgba(255,255,255,0.2)"),
+                           xanchor="center", yanchor="middle")
+
+    fig.add_vline(x=pd.Timestamp(date.today()),
+                  line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dash"))
+
+    x_min = rb_df["run_date"].min()
+    x_max = rb_df["run_date"].max() + pd.Timedelta(weeks=2)
+    fig.update_layout(
+        xaxis=dict(range=[x_min, x_max], showgrid=False,
+                   tickformat="%b '%y", color="rgba(0,212,255,0.6)"),
+        yaxis=dict(range=[-0.15, 1.15], showticklabels=False, showgrid=False),
+        height=130, margin=dict(l=45, r=10, t=5, b=35),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
     )
     return fig
 
@@ -314,6 +418,92 @@ with col_chart:
         )
     else:
         st.info("Run weekly job to populate regime scores.")
+
+st.divider()
+
+# ── Regime History Timeline ───────────────────────────────────────────────────
+st.subheader("Regime History (52 weeks)")
+_hist_df  = load_regime_history(weeks=52)
+_ml_shad  = load_ml_shadow()
+
+if _hist_df.empty:
+    st.info("No regime history — run weekly job first.")
+else:
+    st.plotly_chart(
+        _regime_timeline_chart(_hist_df, _ml_shad.get("rows", [])),
+        use_container_width=True, config={"displayModeBar": False},
+    )
+    _leg_cols = st.columns(5)
+    for _i, (_r, _c) in enumerate(list(_REGIME_COLOR.items())[:4]):
+        _leg_cols[_i].markdown(
+            f"<span style='background:{_c};padding:2px 10px;border-radius:3px;"
+            f"font-size:0.75rem;color:#000;font-family:monospace'>{_r[:4]}</span>",
+            unsafe_allow_html=True,
+        )
+
+st.divider()
+
+# ── ML Shadow Mode ────────────────────────────────────────────────────────────
+st.subheader("ML Shadow Mode")
+st.caption("XGBoost model run ควบคู่ rule-based ทุกศุกร์ — ยังไม่กระทบ portfolio จนกว่าจะผ่าน graduation criteria")
+
+if not _ml_shad.get("active"):
+    st.warning("ML shadow unavailable — check regime_history_ml table.")
+elif _ml_shad["n_weeks"] == 0:
+    st.info("Shadow mode active — predictions log every Friday. No data yet.")
+else:
+    _n       = _ml_shad["n_weeks"]
+    _rate    = _ml_shad["agreement_rate"]
+    _latest  = _ml_shad["latest"]
+    _ml_r    = _latest["ml_regime"]
+    _rb_r    = _latest["rb_regime"]
+    _agrees  = _latest["agrees"]
+    _ml_c    = _latest.get("ml_confidence") or 0
+
+    _col_a, _col_b, _col_c = st.columns([1, 1, 1])
+
+    with _col_a:
+        st.markdown("**Latest Prediction**")
+        _ml_col = _REGIME_COLOR.get(_ml_r, "#888")
+        _rb_col = _REGIME_COLOR.get(_rb_r, "#888")
+        st.markdown(
+            f"ML:&nbsp;&nbsp;<span style='color:{_ml_col};font-weight:bold'>{_ml_r}</span> "
+            f"<span style='font-size:0.8rem;color:rgba(255,255,255,0.5)'>({_ml_c:.1f})</span><br>"
+            f"Rule: <span style='color:{_rb_col};font-weight:bold'>{_rb_r}</span>",
+            unsafe_allow_html=True,
+        )
+        _agree_col  = "#00ff88" if _agrees else "#ff4466"
+        _agree_text = "Agrees" if _agrees else "Disagrees"
+        st.markdown(
+            f"<span style='color:{_agree_col}'>{_agree_text}</span>"
+            f"<span style='color:rgba(255,255,255,0.4);font-size:0.8rem'> — {_latest['run_date']}</span>",
+            unsafe_allow_html=True,
+        )
+
+    with _col_b:
+        _bar_col = "#00ff88" if _rate >= 70 else ("#ffcc00" if _rate >= 50 else "#ff4466")
+        st.markdown(f"**Agreement Rate ({_n} week{'s' if _n != 1 else ''})**")
+        st.markdown(
+            f"<div style='background:#1a1a2e;border-radius:4px;height:10px;width:100%;margin-bottom:6px'>"
+            f"<div style='background:{_bar_col};height:100%;width:{min(_rate,100):.0f}%;border-radius:4px'></div></div>"
+            f"<span style='font-size:1.6rem;font-weight:bold;color:{_bar_col}'>{_rate:.0f}%</span>"
+            f"<span style='color:rgba(255,255,255,0.4);font-size:0.8rem'> / 70% target</span>",
+            unsafe_allow_html=True,
+        )
+
+    with _col_c:
+        _weeks_left = max(0, 26 - _n)
+        st.markdown("**Graduation (6 months)**")
+        _agree_sym = "<span style='color:#00ff88'>OK</span>" if _rate >= 70 \
+                     else f"<span style='color:#ffcc00'>{_rate:.0f}% (need 70%)</span>"
+        _period_sym = f"{_n}/26 weeks" if _weeks_left > 0 \
+                      else "<span style='color:#00ff88'>Complete</span>"
+        st.markdown(
+            f"Agreement: {_agree_sym}<br>"
+            f"NBER 5/6:  <span style='color:#00ff88'>OK</span> (offline)<br>"
+            f"Live:      {_period_sym}",
+            unsafe_allow_html=True,
+        )
 
 st.divider()
 

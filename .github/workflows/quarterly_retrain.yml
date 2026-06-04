@@ -1,0 +1,29 @@
+name: Quarterly ML Retrain
+
+on:
+  schedule:
+    - cron: "30 1 1 1,4,7,10 *"  # 08:30 Bangkok on 1st of Jan/Apr/Jul/Oct
+  workflow_dispatch:               # manual trigger
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Retrain XGBoost model and upload to Supabase Storage
+        env:
+          SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
+          GMAIL_SENDER:       ${{ secrets.GMAIL_SENDER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_RECIPIENT:    ${{ secrets.GMAIL_RECIPIENT }}
+        run: python scripts/train_regime_xgb.py

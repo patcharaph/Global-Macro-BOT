@@ -17,3 +17,7 @@ supabase>=2.0.0
 # Dashboard
 streamlit>=1.35.0
 plotly>=5.0.0
+
+# ML regime detection (Phase 3B)
+xgboost>=1.7.0
+scikit-learn>=1.3.0
