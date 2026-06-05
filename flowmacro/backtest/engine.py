@@ -89,11 +89,15 @@ def run_backtest(
     bench_equity = bench_pf.value()
     bench_norm = (bench_equity / bench_equity.iloc[0] * 100).rename("equity_curve_benchmark")
 
+    spy = prices["SPY"].dropna()
+    spy_norm = (spy / spy.iloc[0] * 100).rename("equity_curve_spy")
+
     return {
         "strategy":                _metrics(pf),
         "benchmark_60_40":         _metrics(bench_pf),
         "equity_curve":            equity_norm,
         "equity_curve_benchmark":  bench_norm,
+        "equity_curve_spy":        spy_norm,
     }
 
 
@@ -136,6 +140,7 @@ def save_backtest(
     for series_id, curve in [
         ("equity_curve",           result.get("equity_curve")),
         ("equity_curve_benchmark", result.get("equity_curve_benchmark")),
+        ("equity_curve_spy",       result.get("equity_curve_spy")),
     ]:
         if curve is not None and not curve.empty:
             rows = [

@@ -102,6 +102,7 @@ st.subheader("Equity Curve (normalised to 100)")
 
 strategy_curve  = load_curve("equity_curve")
 benchmark_curve = load_curve("equity_curve_benchmark")
+spy_curve       = load_curve("equity_curve_spy")
 
 if strategy_curve.empty and benchmark_curve.empty:
     st.info("ไม่มีข้อมูล equity curve — รัน `python scripts/run_backtest.py` อีกครั้ง")
@@ -120,6 +121,13 @@ else:
             x=benchmark_curve.index, y=benchmark_curve.values,
             name="60/40 Benchmark",
             line=dict(color="#3498db", width=2, dash="dot"),
+        ))
+
+    if not spy_curve.empty:
+        fig.add_trace(go.Scatter(
+            x=spy_curve.index, y=spy_curve.values,
+            name="SPY Buy & Hold",
+            line=dict(color="#e74c3c", width=1.5, dash="dash"),
         ))
 
     fig.update_layout(

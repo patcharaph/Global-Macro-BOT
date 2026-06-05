@@ -70,3 +70,24 @@ def test_save_backtest_without_equity_curve_does_not_raise():
     }
     run_id = save_backtest(result_no_curve, client=_mock_client())
     uuid.UUID(run_id)
+
+
+# ── Behavior 5: equity_curve_spy บันทึกลง raw_series ────────────────────────
+def test_save_backtest_writes_spy_curve_to_raw_series():
+    result = _result()
+    result["equity_curve_spy"] = pd.Series(
+        [100.0, 103.0, 101.0],
+        index=pd.date_range("2020-01-01", periods=3),
+    )
+    client = _mock_client()
+    save_backtest(result, client=client)
+
+    all_calls = client._tables["raw_series"].upsert.call_args_list
+    saved_ids = {r["series_id"] for call in all_calls for r in call[0][0]}
+    assert "equity_curve_spy" in saved_ids
+
+
+# ── Behavior 6: ไม่มี equity_curve_spy ใน result → ไม่ crash ─────────────────
+def test_save_backtest_without_spy_curve_does_not_raise():
+    run_id = save_backtest(_result(), client=_mock_client())
+    uuid.UUID(run_id)
