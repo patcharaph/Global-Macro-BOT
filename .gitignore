@@ -7,3 +7,4 @@ venv/
 .streamlit/secrets.toml
 streamlit_err.txt
 *_export.csv
+scripts/*_screenshot.png
