@@ -7,6 +7,7 @@ from flowmacro.config import settings
 _SMTP_HOST = "smtp.gmail.com"
 _SMTP_PORT = 587
 _RETRIES = 3
+_RETRY_BASE_DELAY = 2  # seconds; doubles each attempt
 
 
 def send_alert(subject: str, body: str) -> bool:
@@ -22,6 +23,7 @@ def send_alert(subject: str, body: str) -> bool:
     msg["From"] = settings.gmail_sender
     msg["To"] = recipient
 
+    delay = _RETRY_BASE_DELAY
     for attempt in range(1, _RETRIES + 1):
         try:
             with smtplib.SMTP(_SMTP_HOST, _SMTP_PORT, timeout=10) as smtp:
@@ -33,7 +35,8 @@ def send_alert(subject: str, body: str) -> bool:
         except Exception as exc:
             logger.warning(f"Gmail attempt {attempt}/{_RETRIES} failed: {exc}")
             if attempt < _RETRIES:
-                time.sleep(5)
+                time.sleep(delay)
+                delay *= 2
 
     logger.error(f"Gmail alert failed after {_RETRIES} attempts: {subject}")
     return False
