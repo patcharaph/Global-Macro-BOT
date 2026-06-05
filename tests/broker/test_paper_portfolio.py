@@ -30,7 +30,7 @@ def test_init_run_stores_initial_cash(mock_read, mock_upsert):
     assert stored_value == _INITIAL_CASH
 
 
-# ── Cycle 8: TRANSITIONING regime → 0% P&L (100% cash) ──────────────────────
+# ── Cycle 8: TRANSITIONING regime → 0% P&L (GLD/SHY basket, flat prices) ────
 
 @patch("flowmacro.broker.paper_portfolio._price_on")
 @patch("flowmacro.broker.paper_portfolio.upsert_series")
@@ -41,14 +41,14 @@ def test_transitioning_regime_earns_zero(mock_read, mock_upsert, mock_price):
         _series(3000.0, last_date),      # paper_total_value
         _series(0.0,    last_date),      # regime_code = 0 = TRANSITIONING
     ]
-    mock_price.return_value = 100.0      # prices don't matter — no holdings
+    mock_price.return_value = 100.0      # p0 = p1 = 100 → 0% return on GLD/SHY
 
     from flowmacro.broker.paper_portfolio import update
     summary = update("TRANSITIONING", date(2026, 6, 6))
 
     stored_value = mock_upsert.call_args[0][1].iloc[0]
-    assert stored_value == pytest.approx(3000.0)  # cash unchanged
-    assert "100% cash" in summary
+    assert stored_value == pytest.approx(3000.0)  # flat prices → value unchanged
+    assert "Week P&L" in summary
 
 
 # ── Cycle 9: DEFLATION regime → P&L from TLT/IEF/UUP returns ────────────────

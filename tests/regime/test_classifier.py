@@ -33,11 +33,11 @@ def test_classify_deflation():
     assert result.regime == "DEFLATION"
 
 
-def test_classify_transitioning_when_confidence_below_40():
-    # growth=60, inflation=52 → confidence = min(20, 4) = 4 → TRANSITIONING
+def test_classify_transitioning_when_confidence_below_15():
+    # growth=60, inflation=52 → confidence = |10| + |2| = 12 < enter=15 → TRANSITIONING
     result = classify(60.0, 52.0)
     assert result.regime == "TRANSITIONING"
-    assert result.confidence == pytest.approx(4.0)
+    assert result.confidence == pytest.approx(12.0)
 
 
 def test_classify_transitioning_on_nan_input():
@@ -55,15 +55,15 @@ def _make_scores(rows: list[tuple[float, float]]) -> pd.DataFrame:
 
 
 def test_hysteresis_stays_transitioning_until_confidence_exits():
-    # Row 0: confidence=50 → GOLDILOCKS (normal, not transitioning)
-    # Row 1: confidence=4   → enter TRANSITIONING (4 < 40)
-    # Row 2: confidence=45  → still TRANSITIONING (45 < 50 = exit threshold)
-    # Row 3: confidence=60  → exit TRANSITIONING → GOLDILOCKS
+    # Row 0: confidence=50 → GOLDILOCKS (50 >= enter=15)
+    # Row 1: confidence=12 → enter TRANSITIONING (12 < enter=15)
+    # Row 2: confidence=17 → stays TRANSITIONING (17 < exit=20, hysteresis holds)
+    # Row 3: confidence=60 → exit TRANSITIONING → GOLDILOCKS (60 >= exit=20)
     scores = _make_scores([
-        (75.0, 25.0),   # confidence = min(50, 50) = 50 → GOLDILOCKS
-        (60.0, 52.0),   # confidence = min(20, 4) = 4  → enter TRANSITIONING
-        (72.5, 72.5),   # confidence = min(45, 45) = 45 → stays TRANSITIONING
-        (80.0, 20.0),   # confidence = min(60, 60) = 60 → exit → GOLDILOCKS
+        (75.0, 25.0),   # |25|+|25| = 50 → GOLDILOCKS
+        (60.0, 52.0),   # |10|+|2|  = 12 → enter TRANSITIONING
+        (61.0, 56.0),   # |11|+|6|  = 17 → stays TRANSITIONING (17 < exit=20)
+        (80.0, 20.0),   # |30|+|30| = 60 → exit → GOLDILOCKS
     ])
 
     result = classify_series(scores)
