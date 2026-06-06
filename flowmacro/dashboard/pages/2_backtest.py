@@ -145,3 +145,96 @@ else:
     st.plotly_chart(fig, use_container_width=True)
 
 st.caption("Transaction costs: 0.1% round-trip per rebalance  |  60/40 rebalances quarterly  |  Init capital: $3,000")
+
+st.divider()
+
+# ── Period Returns Table ───────────────────────────────────────────────────────
+st.subheader("Period Returns Comparison")
+
+
+def _period_return(curve: pd.Series, years: float | None) -> float | None:
+    """Return % gain over the trailing `years` window (None = YTD)."""
+    if curve.empty:
+        return None
+    # strip weekends — equity curves only store valid values on trading days
+    curve = curve[curve.index.dayofweek < 5]
+    if curve.empty:
+        return None
+    end_date = curve.index[-1]
+    if years is None:
+        # Jan 1 is always a public holiday; start from Jan 2 to get first trading day
+        start_date = pd.Timestamp(end_date.year, 1, 2)
+    else:
+        start_date = end_date - pd.DateOffset(years=int(years), months=int((years % 1) * 12))
+    idx = curve.index.searchsorted(start_date, side="left")
+    if idx >= len(curve):
+        return None
+    start_val = curve.iloc[idx]
+    end_val   = curve.iloc[-1]
+    if start_val == 0:
+        return None
+    return (end_val / start_val - 1) * 100
+
+
+_PERIODS: list[tuple[str, float | None]] = [
+    ("YTD", None),
+    ("1Y",  1),
+    ("2Y",  2),
+    ("3Y",  3),
+    ("5Y",  5),
+    ("10Y", 10),
+]
+
+_SERIES = {
+    "FlowMacro":       strategy_curve,
+    "60/40 Benchmark": benchmark_curve,
+    "SPY Buy & Hold":  spy_curve,
+}
+
+_COLORS = {
+    "FlowMacro":       "#2ecc71",
+    "60/40 Benchmark": "#3498db",
+    "SPY Buy & Hold":  "#e74c3c",
+}
+
+rows: dict[str, list] = {label: [] for label in _SERIES}
+for _, yrs in _PERIODS:
+    for label, curve in _SERIES.items():
+        rows[label].append(_period_return(curve, yrs))
+
+if all(all(v is None for v in vals) for vals in rows.values()):
+    st.info("ไม่มีข้อมูล equity curve สำหรับคำนวณ period returns")
+else:
+    period_labels = [p for p, _ in _PERIODS]
+
+    fig_pr = go.Figure()
+    for label, vals in rows.items():
+        fig_pr.add_trace(go.Bar(
+            name=label,
+            x=period_labels,
+            y=[v if v is not None else 0 for v in vals],
+            text=[f"{v:.1f}%" if v is not None else "N/A" for v in vals],
+            textposition="outside",
+            marker_color=_COLORS[label],
+            opacity=0.9,
+        ))
+
+    fig_pr.update_layout(
+        barmode="group",
+        yaxis_title="Return (%)",
+        height=380,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=30, b=40),
+        yaxis=dict(zeroline=True, zerolinecolor="rgba(255,255,255,0.2)"),
+    )
+    fig_pr.update_xaxes(showgrid=False)
+    fig_pr.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+    st.plotly_chart(fig_pr, use_container_width=True)
+
+    # Summary table
+    table_data = {"Period": period_labels}
+    for label, vals in rows.items():
+        table_data[label] = [f"{v:.1f}%" if v is not None else "N/A" for v in vals]
+    st.dataframe(pd.DataFrame(table_data).set_index("Period"), use_container_width=True)
