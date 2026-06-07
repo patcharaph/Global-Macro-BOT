@@ -85,7 +85,7 @@ def upsert_ml_regime_history(
     row = {
         "run_date":      run_date,
         "ml_regime":     ml_regime,
-        "ml_confidence": round(ml_confidence, 2),
+        "ml_confidence": round(float(ml_confidence), 2),
         "rb_regime":     rb_regime,
         "agrees":        ml_regime == rb_regime,
     }
