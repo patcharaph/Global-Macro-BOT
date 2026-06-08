@@ -121,7 +121,7 @@ Retail trader 90% ขาดทุนเพราะ:
 
 ### 5.3 In Scope — Phase 3 (เฟส 3: เดือน 5-6)
 
-- ✅ Paper trading integration (Alpaca API)
+- ✅ Paper trading integration (custom simulation, Supabase-backed — ไม่ผ่าน Alpaca API)
 - ✅ Performance tracking dashboard (P&L, Sharpe, drawdown)
 - ✅ Trade journal (auto-log ทุก trade พร้อม thesis ที่ใช้ตัดสินใจ)
 
@@ -138,7 +138,7 @@ Retail trader 90% ขาดทุนเพราะ:
 
 ## 6. Asset Universe (จักรวาลสินทรัพย์)
 
-ระบบจะ trade เฉพาะ instruments ที่ liquid + accessible ผ่าน Alpaca/IBKR:
+ระบบจะ trade เฉพาะ instruments ที่ liquid + accessible ผ่าน IBKR:
 
 | Asset Class | Instruments | Rationale |
 |-------------|-------------|-----------|
@@ -290,9 +290,10 @@ Cash buffer ขั้นต่ำ **20%** ทุก regime (ยกเว้น T
 - ส่งผ่าน Gmail (SMTP App Password)
 
 ### F6: Paper Trading Integration
-- Execute alerts ผ่าน Alpaca paper account
-- Auto-log entry/exit prices, P&L, holding period
-- เทียบ paper performance vs backtest
+- Custom simulation (ไม่ผ่าน Alpaca) — `broker/paper_portfolio.py` + Supabase series `paper_total_value`
+- คำนวณ week-over-week return จาก actual prices × regime weights ทุกศุกร์
+- Dashboard หน้า Paper Trading P&L Tracker — equity curve + weekly log + regime overlay
+- เทียบ paper performance vs backtest projection
 
 ### F7: Monitoring Dashboard
 - Streamlit web app (local)
@@ -343,20 +344,21 @@ Cash buffer ขั้นต่ำ **20%** ทุก regime (ยกเว้น T
 | LLM | Claude Sonnet 4 หรือ 4.5 | Best reasoning สำหรับ macro analysis | GPT-4 (rejected: cost สูงกว่า), Gemini (acceptable as backup) |
 | Dashboard | Streamlit | Quick prototype, ผู้ใช้คุ้นเคย | Next.js (over-engineered สำหรับ personal tool) |
 | Scheduling | GitHub Actions cron | Free, version-controlled | Airflow (over-engineered), AWS Lambda (vendor lock-in) |
-| Broker (paper) | Alpaca | ✅ ยืนยันแล้ว: รองรับ Thailand, free paper trading, Python SDK ดีที่สุดในกลุ่ม, uptime 99.7% | IBKR paper (setup ซับซ้อนกว่า, ต้องเปิด live account ก่อน) |
+| Broker (paper) | Custom PaperBroker (Supabase-backed) | ✅ deployed 2026-06-06: ไม่มี API dependency, $0 opex, ใช้ actual prices จาก Supabase — Alpaca skip เพราะ Phase 4 ใช้ IBKR โดยตรง | Alpaca (rejected: dead-end — live phase ใช้ IBKR ไม่ใช่ Alpaca) |
 | Broker (live) | IBKR (Singapore) | ✅ ยืนยันแล้ว: รองรับ Thailand, 150+ markets, 34 ประเทศ, forex + intl stocks ที่ Alpaca ไม่มี | Alpaca live (US-listed assets only — ไม่เพียงพอสำหรับ global macro) |
 | Crypto | Binance API | ✅ ยืนยันแล้ว: Alpaca crypto ไม่รองรับ non-US users — ต้องใช้ Binance แยก | Coinbase Advanced (acceptable as backup) |
 
-**Broker Strategy (two-phase approach):**
+**Broker Strategy (revised 2026-06-08):**
 ```
-Phase 1–3 (paper trading): Alpaca
-→ เหตุผล: setup รวดเร็ว, Python SDK สะอาด, ฟรี, ไม่ต้อง KYC
-→ ครอบคลุม: US ETFs ทั้งหมดใน asset universe (SPY, QQQ, EFA, EEM ฯลฯ)
+Phase 1–3 (paper trading): Custom PaperBroker (self-built simulation)
+→ เหตุผล: Alpaca ถูก skip — Phase 4 ใช้ IBKR โดยตรง, Alpaca เป็น dead-end (US assets only)
+→ implementation: broker/paper_portfolio.py + Supabase series paper_total_value
+→ ทุนเริ่มต้น: $3,000 virtual, รันจริงตั้งแต่ 2026-06-06
 
 Phase 4+ (live trading): IBKR Singapore
 → เหตุผล: global market access, forex, intl stocks, commission ต่ำ
 → ต้องการ: เงินทุนขั้นต่ำ $10,000, KYC ใช้เวลา 1-2 สัปดาห์
-→ Crypto: Binance API แยกต่างหาก (ทั้ง paper และ live)
+→ Crypto: Binance API แยกต่างหาก
 ```
 
 ✅ **Secrets management:** `.env` + `python-dotenv` สำหรับ local development, GitHub Actions Secrets สำหรับ production — ใช้ code เดียวกัน
@@ -376,7 +378,7 @@ Phase 4+ (live trading): IBKR Singapore
 
 ### 10.2 Assumptions (สมมติฐาน)
 
-- ✅ **A1 (VERIFIED)**: Alpaca รองรับ Thailand — ยืนยันจาก official docs (195+ countries, Thailand listed explicitly). IBKR ใช้ผ่าน IBKR Singapore สำหรับ live phase
+- ✅ **A1 (UPDATED 2026-06-08)**: Paper trading ใช้ custom simulation แทน Alpaca — Alpaca skip เพราะ Phase 4 ใช้ IBKR โดยตรง (Alpaca live = US assets only, ไม่เพียงพอสำหรับ global macro). IBKR Singapore รองรับ Thai traders, KYC 1-2 สัปดาห์
 - ✅ **A2 (VERIFIED)**: ทุนตั้งต้น **100,000 THB (~$3,000 USD)** — เป้าหมายหลักคือ Build + Validate ก่อน ไม่ใช่ live trade ทันที Phase 4 (IBKR live) ต้องการ top-up ทุนให้ถึง $10,000+ ก่อน
 - ✅ **A3**: Data quality จาก yfinance/FRED เพียงพอสำหรับ position trading (ไม่ต้องการ tick data)
 - ✅ **A4**: Macro regime framework (4 regimes) ครอบคลุม market condition ส่วนใหญ่
@@ -490,7 +492,7 @@ Phase 4+ (live trading): IBKR Singapore
 3. ✅ ~~ระบบควรพิจารณา THB exposure (FX hedge) หรือไม่?~~ — **RESOLVED: Track USD + THB equivalent ใน dashboard ผ่าน yfinance `THB=X` ไม่ hedge จริง**
 4. ✅ ~~ต้องการ integrate กับ QFI Terminal หรือเป็น standalone tool?~~ — **RESOLVED: Standalone ก่อน ไม่ออกแบบ integration ล่วงหน้า**
 5. ✅ ~~Backtest library?~~ — **RESOLVED: `vectorbt`**
-6. ✅ ~~Alpaca ใช้ได้จาก Thailand หรือไม่?~~ — **RESOLVED: ใช้ได้ confirmed**
+6. ✅ ~~Alpaca ใช้ได้จาก Thailand หรือไม่?~~ — **MOOT: Alpaca ถูก skip ทั้งหมด (2026-06-08) — paper = custom simulation, live = IBKR Singapore**
 7. ✅ ~~IBKR Singapore สำหรับ Thai trader?~~ — **RESOLVED: รองรับ confirmed**
 8. ✅ ~~Crypto broker?~~ — **RESOLVED: ใช้ Binance API แยก (Phase 2+)**
 
@@ -555,5 +557,9 @@ Phase 1 ถือว่าเสร็จสมบูรณ์เมื่อผ
 
 ---
 
-**Last validated:** 2026-05-30
-**Next review:** หลัง Phase 1 เสร็จสมบูรณ์ (ก่อนเริ่ม Phase 2)
+| 1.5 | 2026-06-08 | Pae | Broker strategy revised: (1) Alpaca paper trading ถูก skip ทั้งหมด — ใช้ custom PaperBroker + Supabase-backed simulation แทน (deployed 2026-06-06), (2) Phase 4 ใช้ IBKR Singapore โดยตรง ไม่มี Alpaca intermediary, (3) อัปเดต Section 5.3/F6/tech stack/A1/open question 6 ให้สะท้อนความจริง, (4) เพิ่ม NEXTPLAN.md สำหรับ Phase 4 IBKR integration |
+
+---
+
+**Last validated:** 2026-06-08
+**Next review:** หลัง Phase 3 paper trading pass (ก่อนเริ่ม Phase 4)

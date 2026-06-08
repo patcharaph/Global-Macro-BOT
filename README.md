@@ -55,7 +55,8 @@ flowmacro/
 ├── regime/
 │   ├── indicators.py      # Indicator registry + percentile rank
 │   ├── scorer.py          # Growth/Inflation axis scores
-│   └── classifier.py      # Regime + confidence + hysteresis
+│   ├── classifier.py      # Regime + confidence + hysteresis
+│   └── ml_predictor.py    # XGBoost shadow-mode regime classifier (Phase 3)
 ├── portfolio/
 │   └── allocator.py       # Regime → equal-weight allocation
 ├── backtest/
@@ -70,9 +71,10 @@ flowmacro/
 ├── dashboard/
 │   ├── app.py             # Streamlit main page (regime + thesis + COT + weights)
 │   └── pages/
-│       ├── 2_backtest.py  # Backtest results
-│       ├── 3_health.py    # System health + staleness
-│       └── 4_data.py      # Raw data explorer (browse any Supabase series)
+│       ├── 2_backtest.py       # Backtest results + SPY benchmark
+│       ├── 3_health.py         # System health + staleness
+│       ├── 4_data.py           # Raw data explorer (browse any Supabase series)
+│       └── 5_paper_trading.py  # Paper Trading P&L Tracker (equity curve + weekly log)
 └── scheduler/
     ├── daily.py           # Daily price refresh (08:00 Bangkok)
     └── weekly.py          # Friday regime detection (08:30 Bangkok)
@@ -185,11 +187,12 @@ streamlit run flowmacro/dashboard/app.py
 # เปิด http://localhost:8501
 ```
 
-Dashboard มี 4 pages:
+Dashboard มี 5 pages:
 - **Home** — Regime, Growth/Inflation quadrant, AI thesis, COT signals, portfolio weights
-- **Backtest** — FlowMacro vs 60/40 equity curves + metrics
+- **Backtest** — FlowMacro vs 60/40 + SPY equity curves + metrics + period returns
 - **Health** — Data staleness + pipeline run history
 - **Data** — Raw data explorer (browse + download any series จาก Supabase)
+- **Paper Trading** — Virtual P&L tracker ($3k), equity curve, weekly log, regime overlay
 
 ### Run Scheduler Manually
 
