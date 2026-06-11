@@ -7,6 +7,11 @@ from flowmacro.data.store import upsert_series, read_series
 from flowmacro.regime.indicators import INDICATORS, normalize
 from flowmacro.regime.scorer import compute_scores
 from flowmacro.regime.classifier import classify
+from flowmacro.regime.probabilities import compute_regime_probabilities
+from flowmacro.portfolio.allocator import REGIME_WEIGHTS, compute_blended_weights
+from flowmacro.portfolio.momentum_filter import apply_momentum_filter
+from flowmacro.portfolio.vol_targeting import apply_vol_targeting
+from flowmacro.portfolio.rebalance import needs_rebalance, compute_trades
 
 _FRED_SERIES = [
     "T10Y2Y", "BAA10Y", "T5YIE", "ICSA",
@@ -113,12 +118,57 @@ def run() -> None:
         axis_scores = compute_scores(scores_df)
         growth    = float(axis_scores["growth_score"].iloc[0])
         inflation = float(axis_scores["inflation_score"].iloc[0])
-        result    = classify(growth, inflation)
+        result    = classify(growth, inflation)  # kept for ML comparison + dominant label
+
+        # V3 Step 2: Softmax regime probabilities
+        regime_probs = compute_regime_probabilities(growth, inflation)
+        dominant_regime = max(regime_probs, key=lambda r: regime_probs[r])
 
         logger.info(
             f"Regime={result.regime} confidence={result.confidence:.1f}% "
-            f"growth={growth:.1f} inflation={inflation:.1f}"
+            f"growth={growth:.1f} inflation={inflation:.1f} | "
+            + " ".join(f"{r[:4]}={p:.2%}" for r, p in regime_probs.items())
         )
+
+        # V3 Step 3: Blended allocation
+        blended_weights = compute_blended_weights(regime_probs)
+        logger.info(f"Blended weights (pre-filter): {blended_weights}")
+
+        # V3 Steps 4–5: Momentum filter + vol targeting using 26W price history
+        _lookback_start = str(date.today() - timedelta(weeks=32))
+        _all_blend_tickers = list(blended_weights.keys())
+        _price_frames: dict[str, pd.Series] = {}
+        for _ticker in _all_blend_tickers:
+            try:
+                _raw = read_series(_ticker, start=_lookback_start)
+                if not _raw.empty:
+                    _price_frames[_ticker] = _raw.resample("W").last().dropna()
+            except Exception as _exc:
+                logger.warning(f"Price history for {_ticker} skipped: {_exc}")
+
+        if _price_frames:
+            price_history = pd.DataFrame(_price_frames)
+            returns_df = price_history.pct_change().dropna()
+            blended_weights = apply_momentum_filter(blended_weights, price_history)
+            blended_weights = apply_vol_targeting(blended_weights, returns_df)
+            logger.info(f"Final blended weights (post-filter): {blended_weights}")
+        else:
+            logger.warning("No price history available — skipping momentum filter and vol targeting")
+
+        # V3 Step 6: Rebalance band check (informational for paper trading)
+        _prev_weights: dict[str, float] = {}
+        try:
+            for _asset in _all_blend_tickers:
+                _s = read_series(f"blend_weight_{_asset.lower().replace('-', '_')}", start=str(date.today() - timedelta(days=8)))
+                if not _s.empty:
+                    _prev_weights[_asset] = float(_s.dropna().iloc[-1])
+        except Exception:
+            pass
+
+        if _prev_weights:
+            _should_rebal = needs_rebalance(_prev_weights, blended_weights)
+            _trades = compute_trades(_prev_weights, blended_weights, 100_000.0) if _should_rebal else []
+            logger.info(f"Rebalance needed: {_should_rebal} | {len(_trades)} trades")
 
         # 5. Store regime data
         today_ts = pd.Timestamp(date.today())
@@ -126,6 +176,16 @@ def run() -> None:
         upsert_series("regime_confidence", pd.Series([result.confidence], index=[today_ts]))
         upsert_series("growth_score",      pd.Series([growth], index=[today_ts]))
         upsert_series("inflation_score",   pd.Series([inflation], index=[today_ts]))
+
+        # V3: Store regime probabilities and blended weights
+        for _regime, _prob in regime_probs.items():
+            upsert_series(
+                f"regime_prob_{_regime.lower()}",
+                pd.Series([_prob], index=[today_ts]),
+            )
+        for _asset, _w in blended_weights.items():
+            _sid = f"blend_weight_{_asset.lower().replace('-', '_')}"
+            upsert_series(_sid, pd.Series([_w], index=[today_ts]))
 
         # 5c. Write to regime_history (queryable history table, one row per week)
         from flowmacro.data.store import upsert_regime_history
@@ -188,6 +248,16 @@ def run() -> None:
             from flowmacro.alerts.gmail import send_alert
             prev_str = previous or "unknown"
             paper_section = f"\n\n{'─'*40}\n{paper_summary}" if paper_summary else ""
+
+            # Format regime probabilities for email
+            sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
+            _bar_width = 20
+            probs_lines = "\n".join(
+                f"  {r:<12} {p*100:5.1f}%  {'#' * round(p * _bar_width)}"
+                for r, p in sorted_probs
+            )
+            top2_str = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.1%}  >  {sorted_probs[1][0]} {sorted_probs[1][1]:.1%}"
+
             body = (
                 f"Date:            {date.today()}\n"
                 f"Regime:          {result.regime}\n"
@@ -196,12 +266,17 @@ def run() -> None:
                 f"Growth Score:    {growth:.1f}\n"
                 f"Inflation Score: {inflation:.1f}\n"
                 f"Reason:          {reason}\n"
+                f"\nRegime Probabilities (V3 blend):\n{probs_lines}\n"
+                f"Top 2: {top2_str}\n"
                 f"\nIndicators ({len(normalized_latest)}): "
                 f"{', '.join(normalized_latest.keys())}"
                 f"{thesis_body}"
                 f"{paper_section}"
             )
-            send_alert(f"Regime: {result.regime} ({result.confidence:.0f}%)", body)
+            send_alert(
+                f"Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]",
+                body,
+            )
         else:
             logger.info(f"No alert — regime unchanged ({result.regime}, confidence={result.confidence:.1f}%)")
 

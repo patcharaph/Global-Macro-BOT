@@ -16,7 +16,7 @@ import pandas as pd
 from loguru import logger
 
 from flowmacro.data.store import read_series, upsert_series
-from flowmacro.portfolio.allocator import get_weights, REGIME_WEIGHTS
+from flowmacro.portfolio.allocator import get_weights, REGIME_WEIGHTS, compute_blended_weights
 
 _VALUE_SERIES = "paper_total_value"
 _INITIAL_CASH = 3_000.0  # USD
@@ -54,6 +54,28 @@ def _last_regime_from_supabase(on: date) -> str:
         return "TRANSITIONING"
 
 
+def _last_probs_from_supabase(on: date) -> dict[str, float] | None:
+    """Read V3 softmax probabilities stored on `on`. Returns None if unavailable."""
+    _REGIME_PROB_SERIES = {
+        "GOLDILOCKS": "regime_prob_goldilocks",
+        "REFLATION":  "regime_prob_reflation",
+        "STAGFLATION": "regime_prob_stagflation",
+        "DEFLATION":  "regime_prob_deflation",
+    }
+    try:
+        probs: dict[str, float] = {}
+        window_start = str(on - timedelta(days=1))
+        window_end   = str(on)
+        for regime, series_id in _REGIME_PROB_SERIES.items():
+            s = read_series(series_id, start=window_start, end=window_end)
+            if s.empty:
+                return None
+            probs[regime] = float(s.dropna().iloc[-1])
+        return probs if len(probs) == 4 else None
+    except Exception:
+        return None
+
+
 def update(current_regime: str, today: date) -> str:
     """
     Update paper portfolio for today's weekly run.
@@ -86,9 +108,16 @@ def update(current_regime: str, today: date) -> str:
         logger.info("Paper portfolio: already updated today — skipping")
         return ""
 
-    # ── Compute return: last week's regime × actual price moves ───────────────
+    # ── Compute return: last week's weights × actual price moves ─────────────
     last_regime = _last_regime_from_supabase(last_date.date())
-    weights     = get_weights(last_regime, _all_regime_tickers())
+    last_probs  = _last_probs_from_supabase(last_date.date())
+
+    if last_probs is not None:
+        # V3: use blended weights derived from stored softmax probabilities
+        weights = compute_blended_weights(last_probs)
+    else:
+        # V2B fallback: single-regime hard weights
+        weights = get_weights(last_regime, _all_regime_tickers())
 
     portfolio_return = 0.0
     ticker_returns: dict[str, float] = {}

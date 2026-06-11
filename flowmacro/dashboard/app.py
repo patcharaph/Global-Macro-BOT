@@ -37,6 +37,31 @@ def _db():
 
 
 @st.cache_data(ttl=300)
+def load_regime_probabilities() -> dict[str, float] | None:
+    """Read latest softmax regime probabilities stored by V3 weekly pipeline."""
+    try:
+        db = _db()
+        probs: dict[str, float] = {}
+        for regime, series_id in [
+            ("GOLDILOCKS",  "regime_prob_goldilocks"),
+            ("REFLATION",   "regime_prob_reflation"),
+            ("STAGFLATION", "regime_prob_stagflation"),
+            ("DEFLATION",   "regime_prob_deflation"),
+        ]:
+            r = (db.table("raw_series")
+                   .select("value")
+                   .eq("series_id", series_id)
+                   .order("date", desc=True)
+                   .limit(1)
+                   .execute())
+            if r.data:
+                probs[regime] = float(r.data[0]["value"])
+        return probs if len(probs) == 4 else None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=300)
 def load_latest_regime() -> dict | None:
     try:
         db = _db()
@@ -212,6 +237,37 @@ def _days_to_next_friday() -> int:
     return days_ahead if days_ahead > 0 else days_ahead + 7
 
 
+def _prob_bars_chart(probs: dict[str, float]) -> go.Figure:
+    """Horizontal bar chart — softmax probability per regime (V3)."""
+    order   = ["GOLDILOCKS", "REFLATION", "STAGFLATION", "DEFLATION"]
+    labels  = [r for r in order if r in probs]
+    values  = [probs[r] * 100 for r in labels]
+    colors  = [_REGIME_COLOR[r] for r in labels]
+
+    fig = go.Figure(go.Bar(
+        x=values,
+        y=labels,
+        orientation="h",
+        marker=dict(color=colors, line=dict(color="rgba(0,0,0,0)", width=0)),
+        text=[f"{v:.1f}%" for v in values],
+        textposition="inside",
+        textfont=dict(color="#000000", size=11, family="monospace", weight="bold"),
+        hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
+    ))
+    fig.update_layout(
+        xaxis=dict(range=[0, 100], showgrid=False, showticklabels=False,
+                   color="rgba(0,212,255,0.4)"),
+        yaxis=dict(showgrid=False, color="rgba(180,180,220,0.8)",
+                   tickfont=dict(family="monospace", size=11)),
+        height=180,
+        margin=dict(l=105, r=10, t=5, b=5),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
+    )
+    return fig
+
+
 def _quadrant_chart(growth: float, inflation: float, regime: str) -> go.Figure:
     color = _REGIME_COLOR.get(regime, "#95a5a6")
     fig = go.Figure()
@@ -362,6 +418,7 @@ vix        = load_vix()
 paper      = load_paper_portfolio()
 days_fri   = _days_to_next_friday()
 
+regime_probs = load_regime_probabilities()
 col_metrics, col_chart = st.columns([1, 1])
 
 with col_metrics:
@@ -418,6 +475,19 @@ with col_chart:
         )
     else:
         st.info("Run weekly job to populate regime scores.")
+
+    if regime_probs:
+        dominant = max(regime_probs, key=lambda r: regime_probs[r])
+        sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
+        top2 = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.0%}  +  {sorted_probs[1][0]} {sorted_probs[1][1]:.0%}"
+        st.caption(f"Regime Blend — top 2: {top2}")
+        st.plotly_chart(
+            _prob_bars_chart(regime_probs),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+    elif latest:
+        st.caption("Regime probabilities — run V3 weekly pipeline to populate")
 
 st.divider()
 
