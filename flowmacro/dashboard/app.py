@@ -109,6 +109,20 @@ def load_backtest_summary() -> dict | None:
         return None
 
 
+@st.cache_data(ttl=3600)
+def load_v3_walkforward() -> pd.DataFrame | None:
+    import os
+    csv_path = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "backtest_v3_walkforward.csv")
+    csv_path = os.path.normpath(csv_path)
+    try:
+        if not os.path.exists(csv_path):
+            return None
+        df = pd.read_csv(csv_path)
+        return df
+    except Exception:
+        return None
+
+
 @st.cache_data(ttl=300)
 def load_staleness() -> pd.DataFrame:
     try:
@@ -591,33 +605,67 @@ else:
 
 st.divider()
 
-# ── Backtest Summary ──────────────────────────────────────────────────────────
-st.subheader("Backtest: FlowMacro vs 60/40")
-bt = load_backtest_summary()
-if bt is None:
-    st.info("No backtest results — run `python scripts/run_backtest.py`")
+# ── Backtest V3 Walk-Forward ──────────────────────────────────────────────────
+st.subheader("Backtest V3 — Walk-Forward Analysis (11 windows)")
+st.caption("5Y train / 2Y test / 1Y roll  •  V2B = hard classify  •  V3 = softmax blend  •  V3F = V3 + momentum + vol target")
+
+wf_df = load_v3_walkforward()
+if wf_df is None:
+    st.info("No V3 backtest data — run `python scripts/backtest_v3.py`")
 else:
-    p_start = bt.get("period_start") or "—"
-    p_end   = bt.get("period_end")   or "—"
-    st.caption(f"Run: {bt.get('run_date','—')}  |  Period: {p_start} → {p_end}")
+    # Mean stats
+    mean_v2b = wf_df["v2b_sharpe"].mean()
+    mean_v3  = wf_df["v3_sharpe"].mean()
+    mean_v3f = wf_df["v3f_sharpe"].mean()
+    mean_dd_v2b = wf_df["v2b_dd"].mean()
+    mean_dd_v3  = wf_df["v3_dd"].mean()
+    mean_dd_v3f = wf_df["v3f_dd"].mean()
 
-    b1, b2, b3 = st.columns(3)
-    sharpe  = bt.get("sharpe_ratio")
-    b_sharpe = bt.get("benchmark_sharpe")
-    ret     = bt.get("annual_return")
-    b_ret   = bt.get("benchmark_return")
+    mc1, mc2, mc3 = st.columns(3)
+    mc1.metric("V2B mean OOS Sharpe", f"{mean_v2b:.2f}", help="Rule-based hard classify baseline")
+    mc2.metric("V3 mean OOS Sharpe",  f"{mean_v3:.2f}",  delta=f"+{mean_v3 - mean_v2b:.2f} vs V2B")
+    mc3.metric("V3F mean OOS Sharpe", f"{mean_v3f:.2f}", delta=f"+{mean_v3f - mean_v2b:.2f} vs V2B")
 
-    dd = bt.get("max_drawdown")
+    md1, md2, md3 = st.columns(3)
+    md1.metric("V2B mean MaxDD",  f"{mean_dd_v2b:.1f}%")
+    md2.metric("V3 mean MaxDD",   f"{mean_dd_v3:.1f}%",  delta=f"{mean_dd_v3 - mean_dd_v2b:.1f}%", delta_color="inverse")
+    md3.metric("V3F mean MaxDD",  f"{mean_dd_v3f:.1f}%", delta=f"{mean_dd_v3f - mean_dd_v2b:.1f}%", delta_color="inverse")
 
-    b1.metric("Sharpe Ratio",  f"{sharpe:.2f}"  if sharpe is not None else "—",
-              delta=f"60/40: {b_sharpe:.2f}" if b_sharpe is not None else None)
-    b2.metric("Max Drawdown",  f"{dd:.1f}%"     if dd     is not None else "—",
-              delta_color="inverse")
-    b3.metric("Total Return",  f"{ret:.1f}%"    if ret    is not None else "—",
-              delta=f"60/40: {b_ret:.1f}%" if b_ret is not None else None)
+    # Bar chart — Sharpe per window
+    short_labels = [w.split(":")[0] for w in wf_df["window"]]
+    fig_wf = go.Figure()
+    for col, name, color in [
+        ("v2b_sharpe", "V2B", "#8888aa"),
+        ("v3_sharpe",  "V3",  "#00ff88"),
+        ("v3f_sharpe", "V3F", "#00d4ff"),
+    ]:
+        fig_wf.add_trace(go.Bar(
+            name=name,
+            x=short_labels,
+            y=wf_df[col],
+            marker_color=color,
+            hovertemplate=f"{name} %{{x}}: %{{y:.2f}}<extra></extra>",
+        ))
+    fig_wf.add_hline(y=0.9, line=dict(color="rgba(255,204,0,0.5)", width=1, dash="dash"),
+                     annotation_text="target 0.90", annotation_font=dict(color="rgba(255,204,0,0.6)", size=9))
+    fig_wf.update_layout(
+        barmode="group",
+        height=260,
+        margin=dict(l=10, r=10, t=10, b=60),
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, color="rgba(0,212,255,0.6)",
+                   tickangle=-30, tickfont=dict(size=9, family="monospace")),
+        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.07)",
+                   color="rgba(0,212,255,0.6)", title="Sharpe"),
+        legend=dict(orientation="h", y=1.08, font=dict(size=10)),
+    )
+    st.plotly_chart(fig_wf, use_container_width=True, config={"displayModeBar": False})
 
-    if bt.get("outperforms_benchmark") is False:
-        st.warning("FlowMacro underperforms 60/40 — confidence threshold may need tuning")
+    with st.expander("Raw Walk-Forward Table", expanded=False):
+        display_df = wf_df.copy()
+        display_df.columns = ["Window", "V2B Sharpe", "V3 Sharpe", "V3F Sharpe", "V2B DD%", "V3 DD%", "V3F DD%"]
+        st.dataframe(display_df.round(2), use_container_width=True, hide_index=True)
 
 st.divider()
 
@@ -714,57 +762,94 @@ else:
 
 st.divider()
 
-# ── Portfolio Weights ─────────────────────────────────────────────────────────
-st.subheader("Portfolio Allocation by Regime")
-st.caption("แต่ละ regime ถือ 80% ของ portfolio (20% cash buffer) — hover เพื่อดูสัดส่วน")
-from flowmacro.portfolio.allocator import REGIME_WEIGHTS
+# ── Portfolio Allocation ──────────────────────────────────────────────────────
+st.subheader("Portfolio Allocation — Current Blend")
+from flowmacro.portfolio.allocator import REGIME_WEIGHTS, compute_blended_weights
 
+_ASSET_COLOR = {
+    "SPY": "#00ff88", "QQQ": "#00cc66", "IWM": "#009944", "EFA": "#44ffaa", "EEM": "#88ffcc",
+    "BTC-USD": "#bf5fff",
+    "TLT": "#00d4ff", "IEF": "#0099cc", "SHY": "#006699",
+    "GLD": "#ffcc00", "SLV": "#ffaa44", "DBC": "#ff8800", "UUP": "#ff6600",
+    "Cash": "#333355",
+}
+_REGIME_NEON = {
+    "GOLDILOCKS": "#00ff88", "REFLATION": "#ffcc00",
+    "STAGFLATION": "#ff4466", "DEFLATION": "#00d4ff",
+}
 _PIE_COLORS = [
     "#00ff88","#00d4ff","#ffcc00","#ff4466","#bf5fff",
     "#ff8800","#00ffcc","#ff66aa","#88ff00","#4488ff","#ffaa00","#aa44ff",
 ]
-_REGIME_NEON = {
-    "GOLDILOCKS":  "#00ff88",
-    "REFLATION":   "#ffcc00",
-    "STAGFLATION": "#ff4466",
-    "DEFLATION":   "#00d4ff",
-}
 
-regime_order = ["GOLDILOCKS", "REFLATION", "STAGFLATION", "DEFLATION"]
-pie_cols = st.columns(4)
+# Compute current blended weights from regime probs
+_blend: dict[str, float] | None = None
+if regime_probs:
+    try:
+        _raw_blend = compute_blended_weights(regime_probs)
+        _blend = {k: v for k, v in _raw_blend.items() if v > 0.001}
+        _blend["Cash"] = _blend.get("Cash", 0.0) + 0.20  # add 20% cash buffer
+    except Exception:
+        _blend = None
 
-for col, regime in zip(pie_cols, regime_order):
-    weights = REGIME_WEIGHTS.get(regime, {})
-    # Add 20% cash buffer as explicit slice
-    labels  = list(weights.keys()) + ["Cash"]
-    values  = [w * 100 for w in weights.values()] + [20.0]
-    colors  = [_PIE_COLORS[i % len(_PIE_COLORS)] for i in range(len(weights))] + ["#333355"]
+if _blend:
+    sorted_blend = sorted(_blend.items(), key=lambda x: x[1], reverse=True)
+    assets = [a for a, _ in sorted_blend]
+    pcts   = [w * 100 for _, w in sorted_blend]
+    colors = [_ASSET_COLOR.get(a, "#888888") for a in assets]
 
-    fig_pie = go.Figure(go.Pie(
-        labels=labels,
-        values=values,
-        textinfo="label+percent",
+    fig_blend = go.Figure(go.Bar(
+        x=pcts,
+        y=assets,
+        orientation="h",
+        marker=dict(color=colors, line=dict(color="rgba(0,0,0,0)", width=0)),
+        text=[f"{v:.1f}%" for v in pcts],
         textposition="inside",
-        textfont=dict(size=10, family="monospace"),
-        marker=dict(colors=colors, line=dict(color="#080c1a", width=2)),
-        hovertemplate="%{label}: %{value:.0f}%<extra></extra>",
-        sort=False,
-        hole=0.25,
+        textfont=dict(color="#000000", size=11, family="monospace"),
+        hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
     ))
-    neon = _REGIME_NEON[regime]
-    fig_pie.update_layout(
-        title=dict(
-            text=f"<b>{regime}</b>",
-            font=dict(size=12, color=neon, family="monospace"),
-            x=0.5, xanchor="center",
-        ),
-        showlegend=False,
-        height=260,
-        margin=dict(l=5, r=5, t=35, b=5),
+    fig_blend.update_layout(
+        xaxis=dict(range=[0, max(pcts) * 1.15], showgrid=False, showticklabels=False),
+        yaxis=dict(showgrid=False, color="rgba(180,180,220,0.9)",
+                   tickfont=dict(family="monospace", size=11), autorange="reversed"),
+        height=max(200, len(assets) * 32),
+        margin=dict(l=80, r=10, t=5, b=5),
+        plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+        showlegend=False,
     )
-    with col:
-        st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
+    st.plotly_chart(fig_blend, use_container_width=True, config={"displayModeBar": False})
+    st.caption("Blended allocation = weighted average ของทุก regime ตาม softmax probability  •  Cash 20% buffer รวมแล้ว")
+else:
+    st.info("Run weekly job to populate regime scores.")
+
+with st.expander("Per-Regime Reference Weights", expanded=False):
+    st.caption("แต่ละ regime ถือ 80% ของ portfolio (20% cash buffer) — ใช้เป็น reference เท่านั้น, portfolio จริงคือ blended ด้านบน")
+    regime_order = ["GOLDILOCKS", "REFLATION", "STAGFLATION", "DEFLATION"]
+    pie_cols = st.columns(4)
+    for col, regime in zip(pie_cols, regime_order):
+        weights = REGIME_WEIGHTS.get(regime, {})
+        labels  = list(weights.keys()) + ["Cash"]
+        values  = [w * 100 for w in weights.values()] + [20.0]
+        p_colors = [_PIE_COLORS[i % len(_PIE_COLORS)] for i in range(len(weights))] + ["#333355"]
+        fig_pie = go.Figure(go.Pie(
+            labels=labels, values=values,
+            textinfo="label+percent", textposition="inside",
+            textfont=dict(size=10, family="monospace"),
+            marker=dict(colors=p_colors, line=dict(color="#080c1a", width=2)),
+            hovertemplate="%{label}: %{value:.0f}%<extra></extra>",
+            sort=False, hole=0.25,
+        ))
+        neon = _REGIME_NEON[regime]
+        fig_pie.update_layout(
+            title=dict(text=f"<b>{regime}</b>",
+                       font=dict(size=12, color=neon, family="monospace"), x=0.5, xanchor="center"),
+            showlegend=False, height=260,
+            margin=dict(l=5, r=5, t=35, b=5),
+            paper_bgcolor="rgba(0,0,0,0)",
+        )
+        with col:
+            st.plotly_chart(fig_pie, use_container_width=True, config={"displayModeBar": False})
 
 with st.expander("คำอธิบาย Ticker Symbols", expanded=False):
     st.markdown("""
