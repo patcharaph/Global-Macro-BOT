@@ -49,6 +49,21 @@ def load_curve(series_id: str) -> pd.Series:
         return pd.Series(dtype=float)
 
 
+@st.cache_data(ttl=3600)
+def load_v3_curves() -> pd.DataFrame | None:
+    """Load full equity curves from backtest_v3.csv (Date, is_v2b, is_v3, is_v3f, ...)."""
+    csv_path = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "backtest_v3.csv")
+    )
+    try:
+        if not os.path.exists(csv_path):
+            return None
+        df = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
+        return df
+    except Exception:
+        return None
+
+
 # ── V3 Walk-Forward (main) ────────────────────────────────────────────────────
 wf_df = load_v3_wf()
 
@@ -144,21 +159,40 @@ with st.expander("V2B Legacy — equity curve (before Jun 2026)", expanded=False
         strategy_curve  = load_curve("equity_curve")
         benchmark_curve = load_curve("equity_curve_benchmark")
         spy_curve       = load_curve("equity_curve_spy")
+        v3_curves_df    = load_v3_curves()
 
+        fig = go.Figure()
+        # V3 from CSV (most important — show first so it's on top)
+        if v3_curves_df is not None and "is_v3" in v3_curves_df.columns:
+            fig.add_trace(go.Scatter(
+                x=v3_curves_df.index, y=v3_curves_df["is_v3"],
+                name="FlowMacro V3 (current)",
+                line=dict(color="#00ff88", width=2.5),
+            ))
+        # V2B from Supabase
         if not strategy_curve.empty:
-            fig = go.Figure()
-            for curve, name, color, dash in [
-                (strategy_curve,  "FlowMacro V2B",  "#00ff88", "solid"),
-                (benchmark_curve, "60/40",           "#3498db", "dot"),
-                (spy_curve,       "SPY",             "#8888aa", "dash"),
-            ]:
-                if not curve.empty:
-                    fig.add_trace(go.Scatter(
-                        x=curve.index, y=curve.values, name=name,
-                        line=dict(color=color, width=2, dash=dash),
-                    ))
+            fig.add_trace(go.Scatter(
+                x=strategy_curve.index, y=strategy_curve.values,
+                name="FlowMacro V2B (legacy)",
+                line=dict(color="#ffcc00", width=1.5, dash="dot"),
+            ))
+        # Benchmarks
+        if not benchmark_curve.empty:
+            fig.add_trace(go.Scatter(
+                x=benchmark_curve.index, y=benchmark_curve.values,
+                name="60/40",
+                line=dict(color="#3498db", width=1.5, dash="dot"),
+            ))
+        if not spy_curve.empty:
+            fig.add_trace(go.Scatter(
+                x=spy_curve.index, y=spy_curve.values,
+                name="SPY",
+                line=dict(color="#8888aa", width=1.5, dash="dash"),
+            ))
+
+        if len(fig.data) > 0:
             fig.update_layout(
-                yaxis_title="Value (start=100)", height=320,
+                yaxis_title="Value (start=100)", height=380,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
                 hovermode="x unified",
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
@@ -168,3 +202,5 @@ with st.expander("V2B Legacy — equity curve (before Jun 2026)", expanded=False
             fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
             st.plotly_chart(fig, use_container_width=True)
             st.caption("SPY สูงกว่าเพราะ 100% US equity — FlowMacro กระจายทั่วโลก มี cash buffer 20%")
+        else:
+            st.info("ไม่มีข้อมูล equity curve")
