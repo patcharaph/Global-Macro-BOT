@@ -301,19 +301,22 @@ def _quadrant_chart(growth: float, inflation: float, regime: str) -> go.Figure:
     color = _REGIME_COLOR.get(regime, "#95a5a6")
     fig = go.Figure()
 
+    # Quadrant mapping (x=growth, y=inflation):
+    # Upper-left  (G<50, I>50) = STAGFLATION  • Upper-right (G>50, I>50) = REFLATION
+    # Lower-left  (G<50, I<50) = DEFLATION    • Lower-right (G>50, I<50) = GOLDILOCKS
     quads = [
-        (0, 50, 50, 100, "rgba(0,212,255,0.08)"),     # DEFLATION — neon cyan tint
-        (50, 50, 100, 100, "rgba(0,255,136,0.08)"),    # GOLDILOCKS — neon green tint
-        (0, 0, 50, 50, "rgba(255,68,102,0.08)"),       # STAGFLATION — neon red tint
-        (50, 0, 100, 50, "rgba(255,204,0,0.08)"),      # REFLATION — neon yellow tint
+        (0,  50, 50,  100, "rgba(255,68,102,0.08)"),   # STAGFLATION — upper-left
+        (50, 50, 100, 100, "rgba(255,204,0,0.08)"),    # REFLATION   — upper-right
+        (0,  0,  50,  50,  "rgba(0,212,255,0.08)"),    # DEFLATION   — lower-left
+        (50, 0,  100, 50,  "rgba(0,255,136,0.08)"),    # GOLDILOCKS  — lower-right
     ]
     for x0, y0, x1, y1, fill in quads:
         fig.add_shape(type="rect", x0=x0, y0=y0, x1=x1, y1=y1,
                       fillcolor=fill, line_width=0, layer="below")
 
     for x, y, text in [
-        (25, 75, "DEFLATION"), (75, 75, "GOLDILOCKS"),
-        (25, 25, "STAGFLATION"), (75, 25, "REFLATION"),
+        (25, 75, "STAGFLATION"), (75, 75, "REFLATION"),
+        (25, 25, "DEFLATION"),   (75, 25, "GOLDILOCKS"),
     ]:
         quad_color = {"DEFLATION":"#00d4ff","GOLDILOCKS":"#00ff88",
                       "STAGFLATION":"#ff4466","REFLATION":"#ffcc00"}[text]
