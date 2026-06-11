@@ -146,15 +146,25 @@ with st.expander("V2B Legacy — equity curve (before Jun 2026)", expanded=False
         cagr     = _cagr(ret,   p_start, p_end) if ret else None
         b_cagr   = _cagr(b_ret, p_start, p_end) if b_ret else None
 
-        st.caption(f"Period: {p_start} → {p_end}")
-        lc1, lc2, lc3, lc4 = st.columns(4)
-        lc1.metric("Sharpe", f"{sharpe:.2f}" if sharpe else "—",
-                   delta=f"{sharpe - b_sharpe:+.2f} vs 60/40" if (sharpe and b_sharpe) else None)
-        lc2.metric("Max DD", f"{dd:.1f}%" if dd else "—", delta_color="inverse")
-        lc3.metric("CAGR",   f"{cagr:.1f}%" if cagr else "—",
-                   delta=f"{cagr - b_cagr:+.1f}% vs 60/40" if (cagr and b_cagr) else None)
-        lc4.metric("Total Return", f"{ret:.1f}%" if ret else "—",
-                   delta=f"{ret - b_ret:+.1f}% vs 60/40" if (ret and b_ret) else None)
+        st.caption(f"Period: {p_start} → {p_end}  •  V3 OOS mean (WF): Sharpe 1.06, MaxDD 8.8%")
+
+        # V3 OOS summary from WF CSV for side-by-side comparison
+        _v3_sharpe = wf_df["v3_sharpe"].mean() if wf_df is not None else None
+        _v3_dd     = wf_df["v3_dd"].mean()     if wf_df is not None else None
+
+        st.markdown("**Sharpe Ratio**")
+        sc1, sc2 = st.columns(2)
+        sc1.metric("V2B", f"{sharpe:.2f}" if sharpe else "—", help="Full period IS backtest")
+        sc2.metric("V3",  f"{_v3_sharpe:.2f}" if _v3_sharpe else "—",
+                   delta=f"{_v3_sharpe - sharpe:+.2f} vs V2B" if (_v3_sharpe and sharpe) else None,
+                   help="Mean OOS Sharpe across 11 WF windows")
+
+        st.markdown("**Max Drawdown**")
+        dc1, dc2 = st.columns(2)
+        dc1.metric("V2B", f"{dd:.1f}%" if dd else "—", delta_color="inverse")
+        dc2.metric("V3",  f"{_v3_dd:.1f}%" if _v3_dd else "—",
+                   delta=f"{_v3_dd - dd:+.1f}% vs V2B" if (_v3_dd and dd) else None,
+                   delta_color="inverse", help="Mean OOS MaxDD across 11 WF windows")
 
         strategy_curve  = load_curve("equity_curve")
         benchmark_curve = load_curve("equity_curve_benchmark")
