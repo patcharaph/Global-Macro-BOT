@@ -6,7 +6,7 @@ import yfinance as yf
 from supabase import create_client
 from flowmacro.config import settings
 
-st.set_page_config(page_title="FlowMacro", layout="wide", page_icon="📈")
+st.set_page_config(page_title="FlowMacro", layout="wide")
 
 _REGIME_ICON = {
     "GOLDILOCKS":    "🟢",
@@ -267,11 +267,11 @@ def _days_to_next_friday() -> int:
 
 
 def _prob_bars_chart(probs: dict[str, float]) -> go.Figure:
-    """Horizontal bar chart — softmax probability per regime (V3)."""
-    order   = ["GOLDILOCKS", "REFLATION", "STAGFLATION", "DEFLATION"]
-    labels  = [r for r in order if r in probs]
-    values  = [probs[r] * 100 for r in labels]
-    colors  = [_REGIME_COLOR[r] for r in labels]
+    """Horizontal bar chart — softmax probability per regime (V3), sorted highest first."""
+    sorted_items = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+    labels = [r for r, _ in sorted_items]
+    values = [v * 100 for _, v in sorted_items]
+    colors = [_REGIME_COLOR[r] for r in labels]
 
     fig = go.Figure(go.Bar(
         x=values,
@@ -284,11 +284,11 @@ def _prob_bars_chart(probs: dict[str, float]) -> go.Figure:
         hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
     ))
     fig.update_layout(
-        xaxis=dict(range=[0, 100], showgrid=False, showticklabels=False,
-                   color="rgba(0,212,255,0.4)"),
+        xaxis=dict(range=[0, 100], showgrid=False, showticklabels=False),
         yaxis=dict(showgrid=False, color="rgba(180,180,220,0.8)",
-                   tickfont=dict(family="monospace", size=11)),
-        height=180,
+                   tickfont=dict(family="monospace", size=11),
+                   autorange="reversed"),
+        height=160,
         margin=dict(l=105, r=10, t=5, b=5),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
@@ -407,10 +407,11 @@ def _regime_timeline_chart(rb_df: pd.DataFrame, ml_rows: list) -> go.Figure:
     fig.add_vline(x=pd.Timestamp(date.today()),
                   line=dict(color="rgba(255,255,255,0.35)", width=1, dash="dash"))
 
-    x_min = rb_df["run_date"].min()
-    x_max = rb_df["run_date"].max() + pd.Timedelta(weeks=2)
+    # Always show at least 52 weeks so x-axis renders as dates even with few data points
+    x_min = min(rb_df["run_date"].min(), pd.Timestamp(date.today()) - pd.Timedelta(weeks=52))
+    x_max = pd.Timestamp(date.today()) + pd.Timedelta(weeks=2)
     fig.update_layout(
-        xaxis=dict(range=[x_min, x_max], showgrid=False,
+        xaxis=dict(range=[x_min, x_max], showgrid=False, type="date",
                    tickformat="%b '%y", color="rgba(0,212,255,0.6)"),
         yaxis=dict(range=[-0.15, 1.15], showticklabels=False, showgrid=False),
         height=130, margin=dict(l=45, r=10, t=5, b=35),
@@ -421,7 +422,7 @@ def _regime_timeline_chart(rb_df: pd.DataFrame, ml_rows: list) -> go.Figure:
 
 
 # ── Header ───────────────────────────────────────────────────────────────────
-st.title("📈 FlowMacro — Macro Regime Dashboard")
+st.title("FlowMacro — Macro Regime Dashboard")
 st.caption(f"Refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 # ── Regime ───────────────────────────────────────────────────────────────────
@@ -436,25 +437,46 @@ if latest:
 else:
     regime = confidence = growth_score = inflation_score = run_date = None
 
-icon  = _REGIME_ICON.get(regime or "", "❓")
-label = regime or "NO DATA — Run weekly job first"
-st.subheader(f"{icon}  **{label}**  (as of {run_date or '—'})")
-if regime:
-    st.caption(_REGIME_DESC.get(regime, ""))
-
 thb_rate   = load_thb_rate()
 vix        = load_vix()
 paper      = load_paper_portfolio()
 days_fri   = _days_to_next_friday()
 
 regime_probs = load_regime_probabilities()
+
+# V3 dominant regime (from softmax probs) — overrides V2B hard-classify for display
+if regime_probs:
+    dominant_regime = max(regime_probs, key=lambda r: regime_probs[r])
+    dominant_prob   = regime_probs[dominant_regime]
+else:
+    dominant_regime = regime
+    dominant_prob   = None
+
+display_regime = dominant_regime or regime
+
+if display_regime:
+    _neon = _REGIME_COLOR.get(display_regime, "#888888")
+    st.markdown(
+        f"<span style='background:{_neon};color:#000;font-family:monospace;font-weight:bold;"
+        f"font-size:1.3rem;padding:4px 18px;border-radius:6px'>{display_regime}</span>"
+        f"<span style='color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:12px'>as of {run_date or '—'}</span>",
+        unsafe_allow_html=True,
+    )
+    st.caption(_REGIME_DESC.get(display_regime, ""))
+else:
+    st.warning("NO DATA — Run weekly job first")
+
 col_metrics, col_chart = st.columns([1, 1])
 
 with col_metrics:
-    # Row 1 — Confidence + Next Rebalance
+    # Row 1 — Dominant Prob + Next Rebalance
     c1, c2 = st.columns(2)
-    c1.metric("Confidence", f"{confidence:.1f}" if confidence is not None else "—",
-              help="ความมั่นใจในการจำแนก regime (0–100)\n= |Growth−50| + |Inflation−50|\nยิ่งสูง signal ยิ่งชัด  •  < 8 = TRANSITIONING")
+    if dominant_prob is not None:
+        c1.metric("Dominant Prob", f"{dominant_prob:.0%}",
+                  help="ความน่าจะเป็นของ dominant regime จาก V3 softmax\n100% = signal ชัดมาก  •  25% = ทุก regime เท่ากัน (สับสนที่สุด)")
+    else:
+        c1.metric("Confidence", f"{confidence:.1f}" if confidence is not None else "—",
+                  help="ความมั่นใจในการจำแนก regime (0–100)\n= |Growth−50| + |Inflation−50|\nยิ่งสูง signal ยิ่งชัด  •  < 8 = TRANSITIONING")
     c2.metric("Next Rebalance",
               f"{days_fri} day{'s' if days_fri != 1 else ''}" if days_fri > 0 else "Today (Friday!)",
               help="จำนวนวันถึง Friday — วัน rebalance ถัดไปของ weekly job\nGitHub Actions รัน 08:30 Bangkok")
@@ -486,19 +508,11 @@ with col_metrics:
         c6.metric("Paper Portfolio", "Initialised",
                   help="Paper portfolio $3,000 เพิ่งเริ่มต้น\nP&L จะแสดงหลังจาก weekly job รันครั้งถัดไป (Friday)")
 
-    st.divider()
-
-    with st.expander("Data Staleness", expanded=False):
-        staleness = load_staleness()
-        if staleness.empty:
-            st.info("No data yet — run the daily job first.")
-        else:
-            st.dataframe(staleness, use_container_width=True, hide_index=True)
 
 with col_chart:
     if growth_score is not None and inflation_score is not None:
         st.plotly_chart(
-            _quadrant_chart(growth_score, inflation_score, regime or ""),
+            _quadrant_chart(growth_score, inflation_score, display_regime or ""),
             use_container_width=True,
             config={"displayModeBar": False},
         )
@@ -506,9 +520,7 @@ with col_chart:
         st.info("Run weekly job to populate regime scores.")
 
     if regime_probs:
-        sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
-        top2 = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.0%}  +  {sorted_probs[1][0]} {sorted_probs[1][1]:.0%}"
-        st.caption(f"Regime Blend — top 2: {top2}")
+        st.caption("Regime probabilities (V3 softmax)")
         st.plotly_chart(
             _prob_bars_chart(regime_probs),
             use_container_width=True,
@@ -531,13 +543,12 @@ else:
         _regime_timeline_chart(_hist_df, _ml_shad.get("rows", [])),
         use_container_width=True, config={"displayModeBar": False},
     )
-    _leg_cols = st.columns(5)
-    for _i, (_r, _c) in enumerate(list(_REGIME_COLOR.items())[:4]):
-        _leg_cols[_i].markdown(
-            f"<span style='background:{_c};padding:2px 10px;border-radius:3px;"
-            f"font-size:0.75rem;color:#000;font-family:monospace'>{_r[:4]}</span>",
-            unsafe_allow_html=True,
-        )
+    _chips = " ".join(
+        f"<span style='background:{_c};padding:2px 10px;border-radius:3px;"
+        f"font-size:0.75rem;color:#000;font-family:monospace;margin-right:4px'>{_r[:4]}</span>"
+        for _r, _c in list(_REGIME_COLOR.items())[:4]
+    )
+    st.markdown(_chips, unsafe_allow_html=True)
 
 st.divider()
 
@@ -870,4 +881,11 @@ with st.expander("คำอธิบาย Ticker Symbols", expanded=False):
 """)
 
 st.divider()
+with st.expander("Data Staleness — Indicator freshness check", expanded=False):
+    staleness = load_staleness()
+    if staleness.empty:
+        st.info("No data yet — run the daily job first.")
+    else:
+        st.dataframe(staleness, use_container_width=True, hide_index=True)
+
 st.caption("FlowMacro — personal use only, not investment advice")
