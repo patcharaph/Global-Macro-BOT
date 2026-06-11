@@ -702,8 +702,8 @@ with col_thesis_btn:
                 from flowmacro.thesis.generator import generate_thesis, save_thesis
                 with st.spinner("Calling OpenRouter..."):
                     t = generate_thesis(
-                        latest["regime"],
-                        float(latest["confidence"]),
+                        display_regime or latest["regime"],
+                        dominant_prob * 100 if dominant_prob is not None else float(latest["confidence"]),
                         float(latest["growth_score"]),
                         float(latest["inflation_score"]),
                     )
