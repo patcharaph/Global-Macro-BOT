@@ -428,6 +428,41 @@ def _regime_timeline_chart(rb_df: pd.DataFrame, ml_rows: list) -> go.Figure:
 st.title("FlowMacro — Macro Regime Dashboard")
 st.caption(f"Refreshed: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
+# ── Action Bar (loaded early, displayed after data loads below) ───────────────
+_ab_latest   = load_latest_regime()
+_ab_probs    = load_regime_probabilities()
+_ab_vix      = load_vix()
+_ab_days_fri = _days_to_next_friday()
+_ab_thesis   = load_latest_thesis()
+
+if _ab_latest or _ab_probs:
+    _ab_dom_regime = (max(_ab_probs, key=lambda r: _ab_probs[r]) if _ab_probs else None) or (_ab_latest["regime"] if _ab_latest else "—")
+    _ab_dom_prob   = (_ab_probs[_ab_dom_regime] if _ab_probs and _ab_dom_regime in _ab_probs else None)
+    _ab_strength   = "WEAK" if (_ab_dom_prob or 0) < 0.35 else ("MODERATE" if (_ab_dom_prob or 0) < 0.60 else "STRONG")
+    _ab_sig_color  = {"WEAK": "#ff4466", "MODERATE": "#ffcc00", "STRONG": "#00ff88"}[_ab_strength]
+    _ab_neon       = _REGIME_COLOR.get(_ab_dom_regime, "#888888")
+    _ab_vix_str    = f"VIX {_ab_vix:.0f}" if _ab_vix else "VIX —"
+    _ab_conviction = f"Conviction {_ab_thesis['conviction']}/10" if _ab_thesis else ""
+    _ab_rebal      = f"Rebalance in {_ab_days_fri}d" if _ab_days_fri > 0 else "Rebalance TODAY"
+
+    _ab_parts = [
+        f"<span style='color:{_ab_neon};font-weight:bold'>{_ab_dom_regime}</span>"
+        f"<span style='color:{_ab_sig_color};font-size:0.8rem;margin-left:6px'>({_ab_strength})</span>",
+        f"<span style='color:rgba(255,255,255,0.7)'>{_ab_rebal}</span>",
+        f"<span style='color:rgba(255,255,255,0.7)'>{_ab_vix_str}</span>",
+    ]
+    if _ab_conviction:
+        _ab_parts.append(f"<span style='color:rgba(255,255,255,0.7)'>{_ab_conviction}</span>")
+
+    _sep = "<span style='color:rgba(255,255,255,0.2);margin:0 16px'>|</span>"
+    st.markdown(
+        f"<div style='background:#0d1117;border:1px solid rgba(0,212,255,0.2);border-radius:8px;"
+        f"padding:10px 20px;font-family:monospace;font-size:0.95rem;margin-bottom:12px'>"
+        + _sep.join(_ab_parts) +
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
 # ── Regime ───────────────────────────────────────────────────────────────────
 latest = load_latest_regime()
 
@@ -473,9 +508,12 @@ if display_regime:
     else:
         _strength_pct, _sig_label, _sig_color, _sig_action = 0, "NO DATA", "#888888", ""
 
+    _badge_opacity = "0.5" if _sig_label == "WEAK" else ("0.8" if _sig_label == "MODERATE" else "1.0")
+    _badge_border  = f"border:2px dashed {_neon};" if _sig_label == "WEAK" else ""
     st.markdown(
         f"<span style='background:{_neon};color:#000;font-family:monospace;font-weight:bold;"
-        f"font-size:1.3rem;padding:4px 18px;border-radius:6px'>{display_regime}</span>"
+        f"font-size:1.3rem;padding:4px 18px;border-radius:6px;opacity:{_badge_opacity};{_badge_border}'>"
+        f"{display_regime}</span>"
         f"<span style='color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:12px'>as of {run_date or '—'}</span>",
         unsafe_allow_html=True,
     )
@@ -524,9 +562,9 @@ with col_metrics:
     # Row 3 — VIX + Paper Portfolio
     c5, c6 = st.columns(2)
     if vix is not None:
-        vix_label = "ต่ำ" if vix < 15 else ("ปกติ" if vix < 20 else ("สูง" if vix < 30 else "วิกฤต"))
+        vix_label = "ต่ำ" if vix < 15 else ("ปกติ" if vix < 25 else ("สูง" if vix < 35 else "วิกฤต"))
         c5.metric("VIX", f"{vix:.1f}  [{vix_label}]",
-                  help="CBOE Volatility Index — ความกลัวของตลาดสหรัฐ\n< 15 = สงบ  •  15–20 = ปกติ  •  20–30 = กังวล  •  > 30 = วิกฤต")
+                  help="CBOE Volatility Index — ความกลัวของตลาดสหรัฐ\n< 15 = สงบ  •  15–25 = ปกติ  •  25–35 = สูง  •  > 35 = วิกฤต")
     else:
         c5.metric("VIX", "—")
 

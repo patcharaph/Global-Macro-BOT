@@ -10,6 +10,17 @@ from flowmacro.config import settings
 st.set_page_config(page_title="Backtest — FlowMacro", layout="wide")
 st.title("Backtest: FlowMacro vs 60/40 & SPY")
 
+st.warning(
+    "**V2B Legacy Backtest** — ข้อมูลนี้มาจาก strategy รุ่นเก่า (ก่อน V3 upgrade มิ.ย. 2026)  "
+    "ดู Walk-Forward V3 ที่ **Main Dashboard** สำหรับผลล่าสุด",
+    icon="⚠️",
+)
+st.info(
+    "**หมายเหตุการเปรียบเทียบ**: FlowMacro เป็น Global Macro low-risk strategy "
+    "(80% invested, 20% cash buffer, กระจายทั่วโลก) — การเทียบกับ SPY โดยตรงไม่ยุติธรรม  "
+    "SPY เป็น 100% US equity ไม่มี hedge  •  เกณฑ์ที่เหมาะสมคือ **Sharpe ratio** และ **Max Drawdown** ไม่ใช่ total return",
+)
+
 
 def _db():
     return create_client(settings.supabase_url, settings.supabase_key)
