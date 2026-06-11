@@ -459,6 +459,20 @@ display_regime = dominant_regime or regime
 
 if display_regime:
     _neon = _REGIME_COLOR.get(display_regime, "#888888")
+
+    # Signal strength: 25% = no signal (uniform), 100% = perfect signal
+    # Normalize to 0–100% range for display
+    if dominant_prob is not None:
+        _strength_pct = max(0.0, (dominant_prob - 0.25) / 0.75) * 100
+        if _strength_pct < 20:
+            _sig_label, _sig_color, _sig_action = "WEAK", "#ff4466", "ถือ portfolio ปัจจุบัน — รอ signal ชัดขึ้น"
+        elif _strength_pct < 50:
+            _sig_label, _sig_color, _sig_action = "MODERATE", "#ffcc00", "เริ่ม lean ตาม regime — ยังไม่ full position"
+        else:
+            _sig_label, _sig_color, _sig_action = "STRONG", "#00ff88", "signal ชัด — ดำเนินการตาม regime ได้เลย"
+    else:
+        _strength_pct, _sig_label, _sig_color, _sig_action = 0, "NO DATA", "#888888", ""
+
     st.markdown(
         f"<span style='background:{_neon};color:#000;font-family:monospace;font-weight:bold;"
         f"font-size:1.3rem;padding:4px 18px;border-radius:6px'>{display_regime}</span>"
@@ -466,6 +480,22 @@ if display_regime:
         unsafe_allow_html=True,
     )
     st.caption(_REGIME_DESC.get(display_regime, ""))
+
+    # Signal strength bar
+    st.markdown(
+        f"<div style='margin-top:8px;margin-bottom:2px'>"
+        f"<span style='color:{_sig_color};font-family:monospace;font-weight:bold;font-size:0.9rem'>"
+        f"Signal: {_sig_label}</span>"
+        f"<span style='color:rgba(255,255,255,0.4);font-size:0.8rem;margin-left:10px'>{_sig_action}</span>"
+        f"</div>"
+        f"<div style='background:#1a1a2e;border-radius:4px;height:6px;width:300px'>"
+        f"<div style='background:{_sig_color};height:100%;width:{_strength_pct:.0f}%;border-radius:4px;"
+        f"transition:width 0.3s'></div></div>"
+        f"<div style='display:flex;width:300px;justify-content:space-between;"
+        f"font-size:0.7rem;color:rgba(255,255,255,0.25);font-family:monospace;margin-top:2px'>"
+        f"<span>unclear</span><span>moderate</span><span>strong</span></div>",
+        unsafe_allow_html=True,
+    )
 else:
     st.warning("NO DATA — Run weekly job first")
 
