@@ -38,7 +38,8 @@ def _db():
 
 @st.cache_data(ttl=300)
 def load_regime_probabilities() -> dict[str, float] | None:
-    """Read latest softmax regime probabilities stored by V3 weekly pipeline."""
+    """Read latest softmax regime probabilities stored by V3 weekly pipeline.
+    Falls back to computing from current growth/inflation scores if V3 data not yet stored."""
     try:
         db = _db()
         probs: dict[str, float] = {}
@@ -56,9 +57,23 @@ def load_regime_probabilities() -> dict[str, float] | None:
                    .execute())
             if r.data:
                 probs[regime] = float(r.data[0]["value"])
-        return probs if len(probs) == 4 else None
+        if len(probs) == 4:
+            return probs
     except Exception:
-        return None
+        pass
+
+    # Fallback: compute on the fly from stored growth/inflation scores
+    try:
+        from flowmacro.regime.probabilities import compute_regime_probabilities
+        latest = load_latest_regime()
+        if latest and latest.get("growth_score") is not None and latest.get("inflation_score") is not None:
+            return compute_regime_probabilities(
+                float(latest["growth_score"]),
+                float(latest["inflation_score"]),
+            )
+    except Exception:
+        pass
+    return None
 
 
 @st.cache_data(ttl=300)
@@ -251,7 +266,7 @@ def _prob_bars_chart(probs: dict[str, float]) -> go.Figure:
         marker=dict(color=colors, line=dict(color="rgba(0,0,0,0)", width=0)),
         text=[f"{v:.1f}%" for v in values],
         textposition="inside",
-        textfont=dict(color="#000000", size=11, family="monospace", weight="bold"),
+        textfont=dict(color="#000000", size=11, family="monospace"),
         hovertemplate="%{y}: %{x:.1f}%<extra></extra>",
     ))
     fig.update_layout(
@@ -477,7 +492,6 @@ with col_chart:
         st.info("Run weekly job to populate regime scores.")
 
     if regime_probs:
-        dominant = max(regime_probs, key=lambda r: regime_probs[r])
         sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
         top2 = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.0%}  +  {sorted_probs[1][0]} {sorted_probs[1][1]:.0%}"
         st.caption(f"Regime Blend — top 2: {top2}")
