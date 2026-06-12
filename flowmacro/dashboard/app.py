@@ -636,6 +636,57 @@ with col_chart:
 
 st.divider()
 
+# ── AI Macro Thesis ───────────────────────────────────────────────────────────
+st.subheader("AI Macro Thesis")
+
+thesis = load_latest_thesis()
+
+col_thesis_hdr, col_thesis_btn = st.columns([3, 1])
+with col_thesis_hdr:
+    if thesis:
+        st.caption(f"Generated: {thesis.get('run_date','—')}  |  Regime: {thesis.get('regime','—')}  |  Model: {thesis.get('model','—')}")
+    else:
+        st.caption("No thesis yet — run weekly job or click Generate.")
+
+with col_thesis_btn:
+    if st.button("Generate Thesis", type="secondary", disabled=(latest is None)):
+        if latest:
+            try:
+                from flowmacro.thesis.generator import generate_thesis, save_thesis
+                with st.spinner("Calling OpenRouter..."):
+                    t = generate_thesis(
+                        display_regime or latest["regime"],
+                        dominant_prob * 100 if dominant_prob is not None else float(latest["confidence"]),
+                        float(latest["growth_score"]),
+                        float(latest["inflation_score"]),
+                    )
+                    save_thesis(t)
+                st.success(f"Thesis generated (conviction {t.conviction}/10)")
+                st.cache_data.clear()
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Failed: {exc}")
+
+if thesis:
+    conv = thesis.get("conviction", 0)
+    conv_color = "#2ecc71" if conv >= 7 else ("#f1c40f" if conv >= 4 else "#e74c3c")
+    st.markdown(
+        f"<span style='font-size:2rem;font-weight:bold;color:{conv_color}'>"
+        f"Conviction {conv}/10</span>",
+        unsafe_allow_html=True,
+    )
+    t_col1, t_col2 = st.columns(2)
+    with t_col1:
+        st.markdown("**คำแนะนำ**")
+        st.info(thesis.get("recommendation", "—"))
+        st.markdown("**เหตุผล**")
+        st.write(thesis.get("reasoning", "—"))
+    with t_col2:
+        st.markdown("**ความเสี่ยง**")
+        st.warning(thesis.get("risks", "—"))
+
+st.divider()
+
 # ── Regime History Timeline ───────────────────────────────────────────────────
 st.subheader("Regime History (52 weeks)")
 _hist_df  = load_regime_history(weeks=52)
@@ -797,57 +848,6 @@ st.caption(
 
 st.divider()
 
-# ── AI Thesis ─────────────────────────────────────────────────────────────────
-st.subheader("AI Macro Thesis")
-
-thesis = load_latest_thesis()
-
-col_thesis_hdr, col_thesis_btn = st.columns([3, 1])
-with col_thesis_hdr:
-    if thesis:
-        st.caption(f"Generated: {thesis.get('run_date','—')}  |  Regime: {thesis.get('regime','—')}  |  Model: {thesis.get('model','—')}")
-    else:
-        st.caption("No thesis yet — run weekly job or click Generate.")
-
-with col_thesis_btn:
-    if st.button("Generate Thesis", type="secondary", disabled=(latest is None)):
-        if latest:
-            try:
-                from flowmacro.thesis.generator import generate_thesis, save_thesis
-                with st.spinner("Calling OpenRouter..."):
-                    t = generate_thesis(
-                        display_regime or latest["regime"],
-                        dominant_prob * 100 if dominant_prob is not None else float(latest["confidence"]),
-                        float(latest["growth_score"]),
-                        float(latest["inflation_score"]),
-                    )
-                    save_thesis(t)
-                st.success(f"Thesis generated (conviction {t.conviction}/10)")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception as exc:
-                st.error(f"Failed: {exc}")
-
-if thesis:
-    conv = thesis.get("conviction", 0)
-    conv_color = "#2ecc71" if conv >= 7 else ("#f1c40f" if conv >= 4 else "#e74c3c")
-    st.markdown(
-        f"<span style='font-size:2rem;font-weight:bold;color:{conv_color}'>"
-        f"Conviction {conv}/10</span>",
-        unsafe_allow_html=True,
-    )
-    t_col1, t_col2 = st.columns(2)
-    with t_col1:
-        st.markdown("**คำแนะนำ**")
-        st.info(thesis.get("recommendation", "—"))
-        st.markdown("**เหตุผล**")
-        st.write(thesis.get("reasoning", "—"))
-    with t_col2:
-        st.markdown("**ความเสี่ยง**")
-        st.warning(thesis.get("risks", "—"))
-
-st.divider()
-
 # ── COT Signals ───────────────────────────────────────────────────────────────
 st.subheader("COT — Net Speculative Positioning")
 st.caption(
@@ -891,7 +891,8 @@ else:
 st.divider()
 
 # ── Portfolio Allocation ──────────────────────────────────────────────────────
-st.subheader("Portfolio Allocation — Current Blend")
+st.subheader("Portfolio Allocation — ตอนนี้ถืออะไรบ้าง")
+st.caption("Blended allocation = ถ่วงน้ำหนักทุก regime ตาม softmax probability พร้อมกัน ไม่ใช่ hard switch")
 from flowmacro.portfolio.allocator import REGIME_WEIGHTS, compute_blended_weights
 
 _ASSET_COLOR = {
@@ -921,6 +922,45 @@ if regime_probs:
         _blend = None
 
 if _blend:
+    # ─ Plain-language category summary ────────────────────────────────────────
+    _EQ  = {"SPY", "QQQ", "IWM", "EFA", "EEM", "BTC-USD"}
+    _BD  = {"TLT", "IEF", "SHY"}
+    _CMD = {"GLD", "SLV", "DBC", "UUP"}
+    _eq_pct   = sum(v for k, v in _blend.items() if k in _EQ)  * 100
+    _bd_pct   = sum(v for k, v in _blend.items() if k in _BD)  * 100
+    _cm_pct   = sum(v for k, v in _blend.items() if k in _CMD) * 100
+    _cash_pct = _blend.get("Cash", 0.0) * 100
+    _dom_r    = display_regime or "—"
+    _dom_rc   = _REGIME_COLOR.get(_dom_r, "#888888")
+    _dom_rp   = f"{dominant_prob:.0%}" if dominant_prob else "—"
+    _regime_context = {
+        "GOLDILOCKS":    "เศรษฐกิจขยายตัว เงินเฟ้อต่ำ → เน้นหุ้น risk-on",
+        "REFLATION":     "เศรษฐกิจฟื้นตัว เงินเฟ้อสูง → เน้น commodities + ตลาดเกิดใหม่",
+        "STAGFLATION":   "เศรษฐกิจชะลอ เงินเฟ้อสูง → เน้นทอง + commodities + USD",
+        "DEFLATION":     "เศรษฐกิจชะลอ เงินเฟ้อต่ำ → เน้นพันธบัตร + USD",
+        "TRANSITIONING": "สัญญาณสับสน → ถือ defensive assets รอ regime ชัดขึ้น",
+    }.get(_dom_r, "")
+    st.markdown(
+        f"<div style='background:#0d1117;border:1px solid rgba(0,212,255,0.15);"
+        f"border-radius:8px;padding:12px 20px;margin-bottom:14px'>"
+        f"<div style='margin-bottom:6px'>"
+        f"<span style='color:{_dom_rc};font-weight:bold;font-family:monospace;font-size:1.05rem'>{_dom_r}</span>"
+        f"<span style='color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:8px'>({_dom_rp} dominant)</span>"
+        f"<span style='color:rgba(255,255,255,0.6);font-size:0.9rem;margin-left:12px'>{_regime_context}</span>"
+        f"</div>"
+        f"<div style='font-family:monospace;font-size:0.95rem;display:flex;gap:24px;flex-wrap:wrap'>"
+        f"<span><span style='color:rgba(255,255,255,0.4)'>หุ้น</span>&nbsp;"
+        f"<span style='color:#00ff88;font-weight:bold'>{_eq_pct:.0f}%</span></span>"
+        f"<span><span style='color:rgba(255,255,255,0.4)'>พันธบัตร</span>&nbsp;"
+        f"<span style='color:#00d4ff;font-weight:bold'>{_bd_pct:.0f}%</span></span>"
+        f"<span><span style='color:rgba(255,255,255,0.4)'>Commodities</span>&nbsp;"
+        f"<span style='color:#ffcc00;font-weight:bold'>{_cm_pct:.0f}%</span></span>"
+        f"<span><span style='color:rgba(255,255,255,0.4)'>เงินสด</span>&nbsp;"
+        f"<span style='color:#666699;font-weight:bold'>{_cash_pct:.0f}%</span></span>"
+        f"</div></div>",
+        unsafe_allow_html=True,
+    )
+
     sorted_blend = sorted(_blend.items(), key=lambda x: x[1], reverse=True)
     assets = [a for a, _ in sorted_blend]
     pcts   = [w * 100 for _, w in sorted_blend]
