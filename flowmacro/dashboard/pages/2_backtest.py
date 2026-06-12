@@ -51,6 +51,49 @@ def load_ml_shadow_bt() -> dict:
         return {"active": False, "n_weeks": 0, "rows": []}
 
 
+@st.cache_data(ttl=300)
+def load_ab_comparison() -> dict:
+    """Load Portfolio A and B values for live comparison."""
+    try:
+        from flowmacro.data.store import read_series
+        pa = read_series("paper_total_value", start="2026-06-01").sort_index()
+        pb_rows = _db().table("paper_portfolio_ml").select(
+            "date,portfolio_value,period_return,ml_regime,blend_weights"
+        ).order("date").execute().data
+        return {"pa": pa, "pb_rows": pb_rows}
+    except Exception:
+        return {"pa": pd.Series(dtype=float), "pb_rows": []}
+
+
+@st.cache_data(ttl=3600)
+def load_ml_blend_backtest() -> pd.DataFrame | None:
+    csv_path = os.path.normpath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts", "backtest_ml_blend.csv")
+    )
+    try:
+        if not os.path.exists(csv_path):
+            return None
+        df = pd.read_csv(csv_path, parse_dates=["date"])
+        return df
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600)
+def load_benchmarks_bt(start: str, end: str) -> dict[str, pd.Series]:
+    """Download SPY and AGG weekly closes for benchmark computation."""
+    import yfinance as yf
+    result: dict[str, pd.Series] = {}
+    for tk in ["SPY", "AGG"]:
+        try:
+            df = yf.download(tk, start=start, end=end, progress=False, auto_adjust=True)
+            if not df.empty:
+                result[tk] = df["Close"].squeeze().dropna()
+        except Exception:
+            pass
+    return result
+
+
 @st.cache_data(ttl=3600)
 def load_backtest_legacy() -> dict | None:
     try:
@@ -138,6 +181,124 @@ with st.expander("Raw Walk-Forward Table", expanded=False):
     disp.columns = ["Window", "V2B Sharpe", "V3 Sharpe", "V3F Sharpe",
                     "V2B DD%", "V3 DD%", "V3F DD%"]
     st.dataframe(disp.round(2), use_container_width=True, hide_index=True)
+
+st.divider()
+
+# ── ML-blend OOS Backtest (2020–2026) ─────────────────────────────────────────
+st.subheader("ML-blend vs Rule-based — OOS Simulation (2020–2026)")
+st.caption(
+    "XGBoost 30% + Rule-based 70% vs Pure rule-based V3  •  "
+    "ไม่มี momentum filter / vol targeting — apples-to-apples  •  "
+    "XGBoost trained on NBER 2000–2024 (partial in-sample overlap)"
+)
+
+_mlbt = load_ml_blend_backtest()
+if _mlbt is not None and not _mlbt.empty:
+    _bt_start = str(_mlbt["date"].iloc[0].date())
+    _bt_end   = str(_mlbt["date"].iloc[-1].date())
+
+    # ── Benchmark: SPY + 60/40 ────────────────────────────────────────────────
+    _bm = load_benchmarks_bt(_bt_start, _bt_end)
+    _spy_raw = _bm.get("SPY", pd.Series(dtype=float))
+    _agg_raw = _bm.get("AGG", pd.Series(dtype=float))
+
+    def _weekly_cum(price_series: pd.Series, dates: pd.Series) -> pd.Series:
+        """Compute cumulative % return aligned to backtest dates."""
+        if price_series.empty:
+            return pd.Series([float("nan")] * len(dates), index=range(len(dates)))
+        wk = price_series.reindex(dates, method="ffill")
+        ret = wk.pct_change().fillna(0)
+        return (((1 + ret).cumprod()) - 1) * 100
+
+    _bt_dates = _mlbt["date"]
+    _spy_cum  = _weekly_cum(_spy_raw, _bt_dates)
+    _spy_ret_wk = _spy_raw.reindex(_bt_dates, method="ffill").pct_change().fillna(0) * 100
+
+    _spy_tot = float(_spy_cum.iloc[-1]) if not _spy_cum.empty else float("nan")
+    _spy_s   = float(_spy_ret_wk.mean() / _spy_ret_wk.std() * (52 ** 0.5)) if _spy_ret_wk.std() > 0 else float("nan")
+    _spy_val = (1 + _spy_ret_wk / 100).cumprod()
+    _spy_mdd = float(((_spy_val / _spy_val.cummax()) - 1).min() * 100)
+
+    # 60/40 weekly return
+    _agg_ret_wk = _agg_raw.reindex(_bt_dates, method="ffill").pct_change().fillna(0) * 100
+    _r6040_wk   = 0.6 * _spy_ret_wk + 0.4 * _agg_ret_wk
+    _r6040_val  = (1 + _r6040_wk / 100).cumprod()
+    _r6040_cum  = (_r6040_val - 1) * 100
+    _r6040_tot  = float(_r6040_cum.iloc[-1])
+    _r6040_s    = float(_r6040_wk.mean() / _r6040_wk.std() * (52 ** 0.5)) if _r6040_wk.std() > 0 else float("nan")
+    _r6040_mdd  = float(((_r6040_val / _r6040_val.cummax()) - 1).min() * 100)
+
+    # ── Metrics table ─────────────────────────────────────────────────────────
+    _rb_s   = _mlbt["rb_return_pct"].mean()    / _mlbt["rb_return_pct"].std()    * (52 ** 0.5)
+    _ml_s   = _mlbt["ml_blend_ret_pct"].mean() / _mlbt["ml_blend_ret_pct"].std() * (52 ** 0.5)
+    _rb_mdd = ((_mlbt["rb_value"]       / _mlbt["rb_value"].cummax())       - 1).min() * 100
+    _ml_mdd = ((_mlbt["ml_blend_value"] / _mlbt["ml_blend_value"].cummax()) - 1).min() * 100
+    _rb_tot = float(_mlbt["rb_cum_pct"].iloc[-1])
+    _ml_tot = float(_mlbt["ml_cum_pct"].iloc[-1])
+    _n_agree_bt   = (_mlbt["rb_regime"] == _mlbt["ml_regime"]).sum()
+    _agree_bt_pct = _n_agree_bt / len(_mlbt) * 100
+
+    _metrics_df = pd.DataFrame({
+        "Strategy":    ["Rule-based V3", "ML-blend 30/70", "SPY", "60/40 (SPY+AGG)"],
+        "Sharpe":      [f"{_rb_s:.2f}", f"{_ml_s:.2f}", f"{_spy_s:.2f}", f"{_r6040_s:.2f}"],
+        "Max DD":      [f"{_rb_mdd:.1f}%", f"{_ml_mdd:.1f}%", f"{_spy_mdd:.1f}%", f"{_r6040_mdd:.1f}%"],
+        "Total Return":[f"{_rb_tot:.1f}%", f"{_ml_tot:.1f}%", f"{_spy_tot:.1f}%", f"{_r6040_tot:.1f}%"],
+    })
+    st.dataframe(_metrics_df, use_container_width=True, hide_index=True)
+    st.caption(f"Regime Agreement: {_agree_bt_pct:.0f}% ({_n_agree_bt}/{len(_mlbt)} สัปดาห์ที่ ML เห็นด้วย)")
+
+    # ── Equity curve ──────────────────────────────────────────────────────────
+    _fig_bt = go.Figure()
+    _fig_bt.add_trace(go.Scatter(
+        x=_bt_dates, y=_mlbt["rb_cum_pct"],
+        name="Rule-based V3", mode="lines",
+        line=dict(color="#00d4ff", width=2),
+        hovertemplate="<b>Rule V3</b>: %{y:.1f}%<br>%{x|%Y-%m-%d}<extra></extra>",
+    ))
+    _fig_bt.add_trace(go.Scatter(
+        x=_bt_dates, y=_mlbt["ml_cum_pct"],
+        name="ML-blend 30/70", mode="lines",
+        line=dict(color="#00ff88", width=2.5),
+        hovertemplate="<b>ML-blend</b>: %{y:.1f}%<br>%{x|%Y-%m-%d}<extra></extra>",
+    ))
+    if not _spy_cum.empty:
+        _fig_bt.add_trace(go.Scatter(
+            x=_bt_dates, y=_spy_cum.values,
+            name="SPY", mode="lines",
+            line=dict(color="#ffcc00", width=1.5, dash="dot"),
+            hovertemplate="<b>SPY</b>: %{y:.1f}%<br>%{x|%Y-%m-%d}<extra></extra>",
+        ))
+    if not _r6040_cum.empty:
+        _fig_bt.add_trace(go.Scatter(
+            x=_bt_dates, y=_r6040_cum.values,
+            name="60/40 (SPY+AGG)", mode="lines",
+            line=dict(color="#ff8844", width=1.5, dash="dash"),
+            hovertemplate="<b>60/40</b>: %{y:.1f}%<br>%{x|%Y-%m-%d}<extra></extra>",
+        ))
+    _fig_bt.add_hline(y=0, line_dash="dot", line_color="rgba(255,255,255,0.15)")
+    _fig_bt.update_layout(
+        height=360, hovermode="x unified",
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=10, b=40, l=10, r=10),
+        legend=dict(orientation="h", y=1.10, font=dict(size=11)),
+        yaxis=dict(title="Cumulative Return (%)", showgrid=True, gridcolor="rgba(255,255,255,0.07)"),
+        xaxis=dict(showgrid=False),
+    )
+    st.plotly_chart(_fig_bt, use_container_width=True, config={"displayModeBar": False})
+
+    with st.expander("รายสัปดาห์ — ML Regime vs Rule Regime", expanded=False):
+        _bt_disp = _mlbt[["date", "rb_regime", "ml_regime", "ml_conf",
+                           "rb_return_pct", "ml_blend_ret_pct",
+                           "rb_cum_pct", "ml_cum_pct",
+                           "growth_score", "inflation_score"]].copy()
+        _bt_disp.columns = ["Date", "Rule Regime", "ML Regime", "ML Conf%",
+                             "Rule Ret%", "ML Ret%",
+                             "Rule Cum%", "ML Cum%",
+                             "Growth", "Inflation"]
+        _bt_disp = _bt_disp.iloc[::-1]
+        st.dataframe(_bt_disp.round(2), use_container_width=True, hide_index=True)
+else:
+    st.info("ยังไม่มีข้อมูล — รัน `python scripts/backtest_ml_blend.py` ก่อน")
 
 st.divider()
 
@@ -275,8 +436,7 @@ else:
                 delta=f"conf {_latest['ml_confidence']:.1f}",
                 help="XGBoost prediction สัปดาห์ล่าสุด")
     _mc4.metric("Rule-based latest", _latest["rb_regime"],
-                delta="Agrees" if _latest["agrees"] else "Disagrees",
-                delta_color="normal" if _latest["agrees"] else "inverse")
+                help="สัปดาห์ล่าสุด: " + ("ML เห็นด้วย" if _latest["agrees"] else "ML ไม่ตรงกัน"))
 
     # ─ Agreement timeline chart ────────────────────────────────────────────────
     _dates  = [pd.to_datetime(r["run_date"]) for r in _rows]
@@ -285,6 +445,10 @@ else:
     _rb_reg = [r["rb_regime"] for r in _rows]
     _ml_con = [r.get("ml_confidence", 0) for r in _rows]
 
+    # Plotly range must be strings, not Timestamps
+    _x_min = (_dates[0]  - pd.Timedelta(weeks=1)).strftime("%Y-%m-%d")
+    _x_max = (_dates[-1] + pd.Timedelta(weeks=1)).strftime("%Y-%m-%d")
+
     fig_ml = go.Figure()
 
     # ML predictions — top row (y=1.5)
@@ -292,7 +456,7 @@ else:
         x=_dates, y=[1.5] * len(_dates),
         mode="markers+text",
         marker=dict(
-            size=20,
+            size=22,
             color=[_REGIME_COLOR_BT.get(r, "#888") for r in _ml_reg],
             line=dict(width=2, color=["#00ff88" if a else "#ff4466" for a in _agree]),
             symbol="square",
@@ -311,7 +475,7 @@ else:
         x=_dates, y=[0.5] * len(_dates),
         mode="markers+text",
         marker=dict(
-            size=20,
+            size=22,
             color=[_REGIME_COLOR_BT.get(r, "#888") for r in _rb_reg],
             line=dict(width=1, color="rgba(255,255,255,0.3)"),
             symbol="circle",
@@ -329,7 +493,13 @@ else:
         height=200,
         margin=dict(l=70, r=10, t=10, b=40),
         plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=False, tickformat="%b %d", color="rgba(0,212,255,0.6)"),
+        xaxis=dict(
+            showgrid=False, tickformat="%b %d",
+            color="rgba(0,212,255,0.6)",
+            range=[_x_min, _x_max],
+            type="date",
+            autorange=False,
+        ),
         yaxis=dict(
             range=[0, 2], showgrid=False,
             tickvals=[0.5, 1.5], ticktext=["Rule", "ML"],
@@ -382,3 +552,116 @@ else:
             f"| ครบ 26 สัปดาห์ live | {_c3_status} | {_n_ml} สัปดาห์ |",
             unsafe_allow_html=True,
         )
+
+    # ─ Portfolio A vs B live comparison ──────────────────────────────────────
+    st.divider()
+    st.subheader("Portfolio A vs B — Live Performance")
+
+    _ab = load_ab_comparison()
+    _pa = _ab["pa"]
+    _pb_rows = _ab["pb_rows"]
+
+    _INIT = 3_000.0
+    _pa_val = float(_pa.iloc[-1]) if not _pa.empty else _INIT
+    _pa_ret = (_pa_val / _INIT - 1) * 100 if not _pa.empty else 0.0
+    _pb_val = float(_pb_rows[-1]["portfolio_value"]) if _pb_rows else _INIT
+    _pb_cumret = sum(r.get("period_return", 0) or 0 for r in _pb_rows)
+
+    _ca, _cb = st.columns(2)
+    _ca.metric("Portfolio A (Rule-based V3)",
+               f"${_pa_val:,.2f}",
+               delta=f"{_pa_ret:+.2f}% inception",
+               help="V3 softmax blend — live ตั้งแต่ Jun 2026")
+    _cb.metric("Portfolio B (ML-blend 30%)",
+               f"${_pb_val:,.2f}",
+               delta=f"{_pb_cumret:+.4f}% inception" if _pb_rows else "เพิ่งเริ่ม",
+               help="30% XGBoost + 70% rule-based — virtual portfolio")
+
+    # Weekly return log
+    _log_rows = []
+    _pa_sorted = _pa.sort_index()
+    _pb_by_date = {r["date"]: r for r in _pb_rows}
+    _shadow_by_date = {r["run_date"]: r for r in _rows}
+
+    _pa_dates = list(_pa_sorted.index)
+    for i in range(1, len(_pa_dates)):
+        _dt = _pa_dates[i]
+        _dt_str = str(_dt.date()) if hasattr(_dt, "date") else str(_dt)[:10]
+        _pa_prev = float(_pa_sorted.iloc[i - 1])
+        _pa_cur  = float(_pa_sorted.iloc[i])
+        _pa_wret = (_pa_cur / _pa_prev - 1) * 100 if _pa_prev else 0.0
+
+        _pb_r = _pb_by_date.get(_dt_str)
+        _pb_wret = float(_pb_r["period_return"]) * 100 if _pb_r else None
+
+        _sh = _shadow_by_date.get(_dt_str)
+        _ml_reg  = _sh["ml_regime"]  if _sh else "—"
+        _rb_reg  = _sh["rb_regime"]  if _sh else "—"
+        _agrees  = _sh["agrees"]     if _sh else None
+
+        _agrees_icon = "✓" if _agrees is True else ("✗" if _agrees is False else "—")
+
+        _winner = "—"
+        if _pb_wret is not None:
+            if _pb_wret > _pa_wret:
+                _winner = "B"
+            elif _pa_wret > _pb_wret:
+                _winner = "A"
+            else:
+                _winner = "Tie"
+
+        _log_rows.append({
+            "Date":        _dt_str,
+            "ML Regime":   _ml_reg,
+            "Rule Regime": _rb_reg,
+            "Agree":       _agrees_icon,
+            "A Return":    f"{_pa_wret:+.2f}%",
+            "B Return":    f"{_pb_wret:+.2f}%" if _pb_wret is not None else "—",
+            "Winner":      _winner,
+        })
+
+    if _log_rows:
+        st.dataframe(pd.DataFrame(_log_rows[::-1]), use_container_width=True, hide_index=True)
+    else:
+        st.info("ยังไม่มีข้อมูล weekly return — รัน weekly job ก่อน")
+
+    # Weights comparison: V3 (rule-based today) vs ML-blend today
+    if _pb_rows and _pb_rows[-1].get("blend_weights"):
+        with st.expander("Weights Comparison: A vs B (สัปดาห์นี้)", expanded=False):
+            _bw = _pb_rows[-1]["blend_weights"]
+            # Load current rule-based weights from regime probs
+            try:
+                from flowmacro.data.store import read_series as _rs
+                from flowmacro.portfolio.allocator import compute_blended_weights as _cbw
+                from flowmacro.data.store import read_series
+                import datetime as _dt_mod
+                _probs_raw: dict[str, float] = {}
+                for _rk, _sid in [
+                    ("GOLDILOCKS",  "regime_prob_goldilocks"),
+                    ("REFLATION",   "regime_prob_reflation"),
+                    ("STAGFLATION", "regime_prob_stagflation"),
+                    ("DEFLATION",   "regime_prob_deflation"),
+                ]:
+                    _s = read_series(_sid, start=str(_dt_mod.date.today() - _dt_mod.timedelta(days=8)))
+                    if not _s.empty:
+                        _probs_raw[_rk] = float(_s.dropna().iloc[-1])
+                _rb_weights = _cbw(_probs_raw) if len(_probs_raw) == 4 else {}
+            except Exception:
+                _rb_weights = {}
+
+            _all_assets = sorted(set(list(_bw.keys()) + list(_rb_weights.keys())))
+            _wt_rows = []
+            for _asset in _all_assets:
+                _wa = _rb_weights.get(_asset, 0.0)
+                _wb = _bw.get(_asset, 0.0)
+                _diff = _wb - _wa
+                if _wa < 0.001 and _wb < 0.001:
+                    continue
+                _wt_rows.append({
+                    "Asset":     _asset,
+                    "A (Rule)":  f"{_wa * 100:.1f}%",
+                    "B (ML)":    f"{_wb * 100:.1f}%",
+                    "Diff":      f"{_diff * 100:+.1f}pp",
+                })
+            st.dataframe(pd.DataFrame(_wt_rows), use_container_width=True, hide_index=True)
+            st.caption("ML-blend ปรับ weights ตาม XGBoost probs 30% — สัปดาห์นี้ ML=REFLATION vs Rule=TRANSITIONING")
