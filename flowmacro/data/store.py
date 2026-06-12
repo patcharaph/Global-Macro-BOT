@@ -113,17 +113,21 @@ def upsert_paper_portfolio_ml(
 ) -> None:
     """Upsert one row into paper_portfolio_ml (Portfolio B virtual tracking)."""
     client = _client()
+
+    def _f(d: dict) -> dict:
+        return {k: float(v) for k, v in d.items()}
+
     row = {
         "date":            run_date,
-        "ml_blend_probs":  ml_blend_probs,
-        "ml_raw_probs":    ml_raw_probs,
-        "rule_probs":      rule_probs,
-        "blend_weights":   blend_weights,
-        "portfolio_value": round(portfolio_value, 4),
-        "period_return":   round(period_return, 6),
+        "ml_blend_probs":  _f(ml_blend_probs),
+        "ml_raw_probs":    _f(ml_raw_probs),
+        "rule_probs":      _f(rule_probs),
+        "blend_weights":   _f(blend_weights),
+        "portfolio_value": round(float(portfolio_value), 4),
+        "period_return":   round(float(period_return), 6),
         "ml_regime":       ml_regime,
         "ml_confidence":   round(float(ml_confidence), 2),
-        "ml_weight_used":  ml_weight_used,
+        "ml_weight_used":  float(ml_weight_used),
     }
     _with_retry(
         lambda: client.table("paper_portfolio_ml").upsert(row, on_conflict="date").execute(),

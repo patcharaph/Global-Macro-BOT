@@ -69,16 +69,16 @@ def compute_ml_blended_probs(
     if not (0.0 <= ml_weight <= 1.0):
         raise ValueError(f"ml_weight must be 0–1, got {ml_weight}")
 
-    conf = ml_confidence / 100.0
+    conf = float(ml_confidence) / 100.0  # cast numpy.float32 → Python float
     remaining = (1.0 - conf) / (len(REGIMES) - 1)
     ml_raw = {r: (conf if r == ml_regime else remaining) for r in REGIMES}
 
     blended_raw = {
-        r: (1.0 - ml_weight) * rule_probs.get(r, 0.0) + ml_weight * ml_raw[r]
+        r: (1.0 - ml_weight) * float(rule_probs.get(r, 0.0)) + ml_weight * ml_raw[r]
         for r in REGIMES
     }
     total = sum(blended_raw.values())
-    blended = {r: v / total for r, v in blended_raw.items()}
+    blended = {r: float(v / total) for r, v in blended_raw.items()}
 
     logger.debug(
         f"ml_blended ml_regime={ml_regime} ml_conf={ml_confidence:.1f} weight={ml_weight} "
