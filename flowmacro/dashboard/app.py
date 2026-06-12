@@ -234,6 +234,20 @@ def load_ticker_prices_rv(ticker: str, start: str) -> pd.Series:
 
 
 @st.cache_data(ttl=300)
+def load_portfolio_b_live() -> dict | None:
+    try:
+        from flowmacro.data.store import read_paper_portfolio_ml
+        df = read_paper_portfolio_ml()
+        if df.empty:
+            return None
+        latest_val = float(df["portfolio_value"].iloc[-1])
+        pnl_pct    = (latest_val / 3_000.0 - 1) * 100
+        return {"value_usd": latest_val, "pnl_pct": pnl_pct, "n_weeks": len(df)}
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=300)
 def load_regime_history(weeks: int = 52) -> pd.DataFrame:
     try:
         from datetime import timedelta
@@ -781,6 +795,7 @@ _oos_rv         = load_backtest_oos()
 _spy_rv         = load_ticker_prices_rv("SPY", start=_BM_START_RV)
 _agg_rv         = load_ticker_prices_rv("AGG", start=_BM_START_RV)
 _pp_rv          = load_paper_portfolio()
+_ppb_rv         = load_portfolio_b_live()
 
 
 def _fmt_ret(v: float | None) -> str:
@@ -827,23 +842,28 @@ _rv_periods = [
 _rv_rows = []
 for _pl, _ps, _src in _rv_periods:
     if _src == "LIVE":
-        _live_ret = _pp_rv["pnl_pct"] if _pp_rv else None
-        _fm_cell  = f"{_fmt_ret(_live_ret)} (live)" if _live_ret is not None else "—"
+        _live_ret_a = _pp_rv["pnl_pct"]  if _pp_rv  else None
+        _live_ret_b = _ppb_rv["pnl_pct"] if _ppb_rv else None
+        _fm_cell    = f"{_fmt_ret(_live_ret_a)} (live)" if _live_ret_a is not None else "—"
+        _ml_cell    = f"{_fmt_ret(_live_ret_b)} (live)" if _live_ret_b is not None else "—"
     else:
         _fm_cell = _fmt_ret(_oos_ret(_ps))
+        _ml_cell = "—"   # no OOS backtest for ML-blend
 
     _rv_rows.append({
-        "Period":          _pl,
-        "FlowMacro V3":   _fm_cell,
-        "Source":         _src,
-        "SPY":            _fmt_ret(_bm_spy(_ps)),
-        "60/40 (SPY+AGG)": _fmt_ret(_bm_6040(_ps)),
+        "Period":              _pl,
+        "Portfolio A (V3)":   _fm_cell,
+        "Portfolio B (ML)":   _ml_cell,
+        "Source":             _src,
+        "SPY":                _fmt_ret(_bm_spy(_ps)),
+        "60/40 (SPY+AGG)":   _fmt_ret(_bm_6040(_ps)),
     })
 
 st.dataframe(pd.DataFrame(_rv_rows), use_container_width=True, hide_index=True)
 st.caption(
-    "FlowMacro V3 YTD–5Y = **backtest OOS** (out-of-sample 2020–2026, ไม่ได้ใช้ fit ข้อมูลช่วงนั้น)  "
-    "•  Since live = ผลจริง portfolio A  •  Benchmark = yfinance actual prices"
+    "Portfolio A (V3) YTD–5Y = **backtest OOS** (out-of-sample 2020–2026)  "
+    "•  Portfolio B (ML) Since live = ผลจริง ML-blend 30% (เพิ่งเริ่ม — ต้องรอ 26 สัปดาห์)  "
+    "•  Benchmark = yfinance actual prices"
 )
 
 st.divider()
