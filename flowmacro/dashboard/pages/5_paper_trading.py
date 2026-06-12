@@ -52,8 +52,11 @@ def load_regime_history() -> pd.DataFrame:
 @st.cache_data(ttl=86400)
 def load_backtest_oos() -> pd.Series:
     try:
-        path = pathlib.Path(__file__).parent.parent.parent / "scripts" / "backtest_v3.csv"
-        df = pd.read_csv(path, parse_dates=["Date"]).set_index("Date")
+        # resolve from repo root regardless of CWD
+        here = pathlib.Path(__file__).resolve()
+        root = here.parent.parent.parent.parent  # pages/ → dashboard/ → flowmacro/ → repo root
+        path = root / "scripts" / "backtest_v3.csv"
+        df = pd.read_csv(str(path), parse_dates=["Date"]).set_index("Date")
         return df["oos_v3"].dropna()
     except Exception:
         return pd.Series(dtype=float)
@@ -282,9 +285,8 @@ _live_weeks   = max(0, len(values) - 1)
 def _fmt_ret(v: float | None) -> str:
     if v is None:
         return "—"
-    color = "green" if v >= 0 else "red"
-    sign  = "+" if v >= 0 else ""
-    return f":{color}[{sign}{v:.1f}%]"
+    sign = "+" if v >= 0 else ""
+    return f"{sign}{v:.1f}%"
 
 
 def _oos_ret(start: str) -> float | None:
@@ -316,7 +318,7 @@ _ret_rows = []
 for _plabel, _pstart, _src in _periods:
     if _src == "LIVE":
         _fm_ret, _ = _period_return(values, _pstart)
-        _fm_cell   = f"{_fmt_ret(_fm_ret)} ✦live" if _fm_ret is not None else "—"
+        _fm_cell   = f"{_fmt_ret(_fm_ret)} (live)" if _fm_ret is not None else "—"
     else:
         _fm_ret  = _oos_ret(_pstart)
         _fm_cell = f"{_fmt_ret(_fm_ret)}" if _fm_ret is not None else "—"
