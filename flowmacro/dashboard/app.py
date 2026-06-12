@@ -454,6 +454,15 @@ if _ab_latest or _ab_probs:
     if _ab_conviction:
         _ab_parts.append(f"<span style='color:rgba(255,255,255,0.7)'>{_ab_conviction}</span>")
 
+    # B.1: Top-level action banner — clear HOLD / REBALANCE signal
+    _conviction_val = _ab_thesis.get("conviction", 10) if _ab_thesis else 10
+    if _ab_strength == "WEAK" or _conviction_val <= 3:
+        st.error("🔴 HOLD — ไม่ต้องทำอะไร | สัญญาณอ่อน รอสัปดาห์หน้า")
+    elif _ab_days_fri == 0:
+        st.warning("🟡 REBALANCE TODAY — ดู trades list ด้านล่าง")
+    else:
+        st.success(f"🟢 HOLD — Rebalance ใน {_ab_days_fri} วัน")
+
     _sep = "<span style='color:rgba(255,255,255,0.2);margin:0 16px'>|</span>"
     st.markdown(
         f"<div style='background:#0d1117;border:1px solid rgba(0,212,255,0.2);border-radius:8px;"
@@ -508,12 +517,27 @@ if display_regime:
     else:
         _strength_pct, _sig_label, _sig_color, _sig_action = 0, "NO DATA", "#888888", ""
 
+    # B.2: badge label + background color driven by dominant_prob thresholds
+    if dominant_prob is not None:
+        if dominant_prob >= 0.60:
+            _badge_label = display_regime
+            _badge_bg    = _neon
+        elif dominant_prob >= 0.40:
+            _badge_label = f"{display_regime} (MODERATE)"
+            _badge_bg    = "#ffaa00"
+        else:
+            _badge_label = "TRANSITIONING"
+            _badge_bg    = "#8888aa"
+    else:
+        _badge_label = display_regime or "—"
+        _badge_bg    = _neon
+
     _badge_opacity = "0.5" if _sig_label == "WEAK" else ("0.8" if _sig_label == "MODERATE" else "1.0")
-    _badge_border  = f"border:2px dashed {_neon};" if _sig_label == "WEAK" else ""
+    _badge_border  = f"border:2px dashed {_badge_bg};" if _sig_label == "WEAK" else ""
     st.markdown(
-        f"<span style='background:{_neon};color:#000;font-family:monospace;font-weight:bold;"
+        f"<span style='background:{_badge_bg};color:#000;font-family:monospace;font-weight:bold;"
         f"font-size:1.3rem;padding:4px 18px;border-radius:6px;opacity:{_badge_opacity};{_badge_border}'>"
-        f"{display_regime}</span>"
+        f"{_badge_label}</span>"
         f"<span style='color:rgba(255,255,255,0.4);font-size:0.85rem;margin-left:12px'>as of {run_date or '—'}</span>",
         unsafe_allow_html=True,
     )
@@ -952,11 +976,24 @@ with st.expander("คำอธิบาย Ticker Symbols", expanded=False):
 """)
 
 st.divider()
+
+# ── C.4: Data Quality Score ───────────────────────────────────────────────────
+_dq_data = load_staleness()
+if not _dq_data.empty:
+    _ok      = int((_dq_data["Status"].str.startswith("✅")).sum())
+    _total   = len(_dq_data)
+    _dq_score = _ok / _total * 100
+    if _dq_score >= 90:
+        st.success(f"✅ Data Quality: {_dq_score:.0f}%  ({_ok}/{_total} indicators fresh)")
+    elif _dq_score >= 70:
+        st.warning(f"⚠️ Data Quality: {_dq_score:.0f}% — บาง indicator stale  ({_ok}/{_total} fresh) | ดูรายละเอียดด้านล่าง")
+    else:
+        st.error(f"❌ Data Quality: {_dq_score:.0f}% — ผล regime อาจไม่น่าเชื่อถือ  ({_ok}/{_total} fresh) | รัน daily job")
+
 with st.expander("Data Staleness — Indicator freshness check", expanded=False):
-    staleness = load_staleness()
-    if staleness.empty:
+    if _dq_data.empty:
         st.info("No data yet — run the daily job first.")
     else:
-        st.dataframe(staleness, use_container_width=True, hide_index=True)
+        st.dataframe(_dq_data, use_container_width=True, hide_index=True)
 
 st.caption("FlowMacro — personal use only, not investment advice")

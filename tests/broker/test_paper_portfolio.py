@@ -1,4 +1,5 @@
 """Tests for flowmacro.broker.paper_portfolio — paper trading P&L behavior."""
+import pytest
 from datetime import date
 from unittest.mock import patch, MagicMock
 import pandas as pd
@@ -96,3 +97,70 @@ def test_no_double_update_same_day(mock_read, mock_upsert):
 
     assert summary == ""
     mock_upsert.assert_not_called()
+
+
+# ── compute_virtual_b_value ───────────────────────────────────────────────────
+
+@patch("flowmacro.broker.paper_portfolio.upsert_series")
+@patch("flowmacro.broker.paper_portfolio.read_series")
+def test_virtual_b_init_returns_initial_cash(mock_read, mock_upsert):
+    mock_read.return_value = _empty_series()
+
+    from flowmacro.broker.paper_portfolio import compute_virtual_b_value, _INITIAL_CASH_B
+    result = compute_virtual_b_value({"SPY": 0.5, "TLT": 0.3, "Cash": 0.2}, date(2026, 6, 6))
+
+    assert result == _INITIAL_CASH_B
+    mock_upsert.assert_called_once()
+    stored = mock_upsert.call_args[0][1].iloc[0]
+    assert stored == _INITIAL_CASH_B
+
+
+@patch("flowmacro.broker.paper_portfolio._price_on")
+@patch("flowmacro.broker.paper_portfolio.upsert_series")
+@patch("flowmacro.broker.paper_portfolio.read_series")
+def test_virtual_b_computes_weighted_return(mock_read, mock_upsert, mock_price):
+    last_date = date(2026, 5, 30)
+    mock_read.return_value = _series(3000.0, last_date)
+
+    call_count = {"n": 0}
+    def price_side(ticker, on):
+        call_count["n"] += 1
+        return 100.0 if call_count["n"] % 2 == 1 else 110.0  # +10% every ticker
+    mock_price.side_effect = price_side
+
+    from flowmacro.broker.paper_portfolio import compute_virtual_b_value
+    weights = {"SPY": 0.40, "TLT": 0.40}
+    result = compute_virtual_b_value(weights, date(2026, 6, 6))
+
+    # total weight 0.80, each +10% → portfolio +8% → $3,000 × 1.08 = $3,240
+    assert result == pytest.approx(3000.0 * 1.08)
+    stored = mock_upsert.call_args[0][1].iloc[0]
+    assert stored == pytest.approx(3240.0)
+
+
+@patch("flowmacro.broker.paper_portfolio.upsert_series")
+@patch("flowmacro.broker.paper_portfolio.read_series")
+def test_virtual_b_no_double_update_same_day(mock_read, mock_upsert):
+    today = date(2026, 6, 6)
+    mock_read.return_value = _series(3100.0, today)
+
+    from flowmacro.broker.paper_portfolio import compute_virtual_b_value
+    result = compute_virtual_b_value({"SPY": 0.8}, today)
+
+    assert result == 3100.0
+    mock_upsert.assert_not_called()
+
+
+@patch("flowmacro.broker.paper_portfolio._price_on")
+@patch("flowmacro.broker.paper_portfolio.upsert_series")
+@patch("flowmacro.broker.paper_portfolio.read_series")
+def test_virtual_b_missing_price_treated_as_zero(mock_read, mock_upsert, mock_price):
+    last_date = date(2026, 5, 30)
+    mock_read.return_value = _series(3000.0, last_date)
+    mock_price.return_value = None  # all prices missing
+
+    from flowmacro.broker.paper_portfolio import compute_virtual_b_value
+    result = compute_virtual_b_value({"SPY": 0.8}, date(2026, 6, 6))
+
+    # missing prices → 0% return → value unchanged
+    assert result == pytest.approx(3000.0)

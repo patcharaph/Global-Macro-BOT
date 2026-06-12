@@ -1,8 +1,9 @@
 """Paper Trading P&L Tracker — FlowMacro virtual portfolio."""
-from datetime import date
+from datetime import date, timedelta
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import yfinance as yf
 from supabase import create_client
 from flowmacro.config import settings
 
@@ -45,6 +46,63 @@ def load_regime_history() -> pd.DataFrame:
         return df.set_index("run_date")
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=3600)
+def load_ticker_prices(ticker: str, start: str) -> pd.Series:
+    try:
+        df = yf.download(ticker, start=start, progress=False, auto_adjust=True)
+        if df.empty:
+            return pd.Series(dtype=float)
+        return df["Close"].squeeze().dropna()
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+@st.cache_data(ttl=300)
+def load_regime_probs() -> dict[str, float] | None:
+    try:
+        from flowmacro.data.store import read_series
+        probs: dict[str, float] = {}
+        for regime, sid in [
+            ("GOLDILOCKS",  "regime_prob_goldilocks"),
+            ("REFLATION",   "regime_prob_reflation"),
+            ("STAGFLATION", "regime_prob_stagflation"),
+            ("DEFLATION",   "regime_prob_deflation"),
+        ]:
+            s = read_series(sid, start=str(date.today() - timedelta(days=8)))
+            if not s.empty:
+                probs[regime] = float(s.dropna().iloc[-1])
+        return probs if len(probs) == 4 else None
+    except Exception:
+        return None
+
+
+def _period_return(
+    values: pd.Series, start: str
+) -> tuple[float | None, str]:
+    """Return (return_pct, label) from `start` to latest in series."""
+    start_ts = pd.Timestamp(start)
+    subset = values[values.index >= start_ts].dropna()
+    if len(subset) >= 2:
+        weeks = len(subset) - 1
+        pct = (float(subset.iloc[-1]) / float(subset.iloc[0]) - 1) * 100
+        return pct, f"live {weeks}w"
+    if len(subset) == 1:
+        return 0.0, "live 1w"
+    return None, "—"
+
+
+def _bm_return(spy: pd.Series, agg: pd.Series, start: str) -> float | None:
+    """60/40 benchmark return from start to latest."""
+    s = pd.Timestamp(start)
+    spy_s = spy[spy.index >= s].dropna()
+    agg_s = agg[agg.index >= s].dropna()
+    if len(spy_s) < 2 or len(agg_s) < 2:
+        return None
+    r_spy = float(spy_s.iloc[-1] / spy_s.iloc[0] - 1) * 100
+    r_agg = float(agg_s.iloc[-1] / agg_s.iloc[0] - 1) * 100
+    return 0.60 * r_spy + 0.40 * r_agg
 
 
 values    = load_paper_values()
@@ -197,6 +255,107 @@ if log_rows:
         use_container_width=True,
         hide_index=True,
     )
+
+st.divider()
+
+# ── C.1 Return table ──────────────────────────────────────────────────────────
+st.subheader("Returns vs Benchmark")
+
+_LIVE_START = "2026-06-03"
+_spy_prices = load_ticker_prices("SPY", start="2026-01-01")
+_agg_prices = load_ticker_prices("AGG", start="2026-01-01")
+
+def _fmt_ret(v: float | None) -> str:
+    if v is None:
+        return "—"
+    return f"+{v:.2f}%" if v >= 0 else f"{v:.2f}%"
+
+
+_live_weeks = max(0, len(values) - 1)
+_period_map = [
+    ("YTD",                     "2026-01-01"),
+    ("1M",                      str(date.today() - timedelta(days=30))),
+    (f"Since live ({_live_weeks}w)", _LIVE_START),
+]
+
+_ret_rows = []
+for _plabel, _pstart in _period_map:
+    _fm_ret, _fm_label = _period_return(values, _pstart)
+    _spy_sub = _spy_prices[_spy_prices.index >= pd.Timestamp(_pstart)].dropna()
+    _spy_ret = (
+        (float(_spy_sub.iloc[-1]) / float(_spy_sub.iloc[0]) - 1) * 100
+        if len(_spy_sub) >= 2 else None
+    )
+    _bm60_ret = _bm_return(_spy_prices, _agg_prices, _pstart)
+    _fm_cell = (
+        f"{_fmt_ret(_fm_ret)} (live {_fm_label})"
+        if _fm_ret is not None else "—"
+    )
+    _ret_rows.append({
+        "Period":           _plabel,
+        "FlowMacro A":      _fm_cell,
+        "SPY":              _fmt_ret(_spy_ret),
+        "60/40 (SPY+AGG)":  _fmt_ret(_bm60_ret),
+    })
+
+st.dataframe(pd.DataFrame(_ret_rows), use_container_width=True, hide_index=True)
+st.caption(
+    "FlowMacro A เริ่ม live 2026-06-03 — YTD/1M แสดงเฉพาะ benchmark (ไม่มีข้อมูล FlowMacro ก่อน live)"
+)
+
+st.divider()
+
+# ── C.2 Position P&L ──────────────────────────────────────────────────────────
+st.subheader("Position P&L — This Week")
+
+_probs = load_regime_probs()
+if _probs is None:
+    st.info("ไม่พบ regime probabilities — รัน weekly job ก่อน")
+else:
+    from flowmacro.portfolio.allocator import compute_blended_weights as _cbw
+    _cur_weights = _cbw(_probs)
+    _week_lookback = str(date.today() - timedelta(days=10))
+
+    _pos_rows = []
+    for _ticker in sorted(_cur_weights.keys()):
+        _w = _cur_weights[_ticker]
+        if _w < 0.001:
+            continue
+        try:
+            _px = load_ticker_prices(_ticker, start=_week_lookback)
+            _px = _px.dropna()
+            if len(_px) >= 2:
+                _r = (float(_px.iloc[-1]) / float(_px.iloc[-2]) - 1) * 100
+                _contrib = _w * _r
+            else:
+                _r, _contrib = None, None
+        except Exception:
+            _r, _contrib = None, None
+
+        _pos_rows.append({
+            "Asset":        _ticker,
+            "Weight":       f"{_w * 100:.1f}%",
+            "Week Return":  f"{_r:+.2f}%" if _r is not None else "—",
+            "Contribution": f"{_contrib:+.2f}pp" if _contrib is not None else "—",
+        })
+
+    if _pos_rows:
+        st.dataframe(pd.DataFrame(_pos_rows), use_container_width=True, hide_index=True)
+    st.caption(
+        "Contribution = Weight × Week Return  •  "
+        "ใช้ราคาล่าสุด 2 จุดจาก yfinance (ประมาณการสัปดาห์ ไม่ใช่ exact Friday-to-Friday)"
+    )
+
+# ── C.3 Expected return box ───────────────────────────────────────────────────
+st.info(
+    "**ผลตอบแทนคาดหวัง** (จาก Walk-Forward backtest V3 — 11 windows, OOS)\n\n"
+    "| Scenario       | Sharpe | Expected annual return |\n"
+    "|:---------------|:------:|:----------------------:|\n"
+    "| Conservative   |  0.7   |  ~10%/ปี               |\n"
+    "| Base case      |  1.0   |  ~14%/ปี               |\n"
+    "| Good case      |  1.3   |  ~17%/ปี               |\n\n"
+    "MaxDD คาดหวัง ≤ 12%  •  ตัวเลขจาก V3 OOS mean Sharpe = 1.06, mean MaxDD = 8.8%"
+)
 
 st.caption(
     "Paper portfolio tracks FlowMacro weekly regime signals with $3,000 virtual capital.  "

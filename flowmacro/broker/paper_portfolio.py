@@ -18,8 +18,10 @@ from loguru import logger
 from flowmacro.data.store import read_series, upsert_series
 from flowmacro.portfolio.allocator import get_weights, REGIME_WEIGHTS, compute_blended_weights
 
-_VALUE_SERIES = "paper_total_value"
-_INITIAL_CASH = 3_000.0  # USD
+_VALUE_SERIES   = "paper_total_value"
+_VALUE_SERIES_B = "paper_total_value_b"
+_INITIAL_CASH   = 3_000.0  # USD — Portfolio A
+_INITIAL_CASH_B = 3_000.0  # USD — Portfolio B (same start for fair comparison)
 _REGIME_CODE  = {
     1: "GOLDILOCKS", 2: "REFLATION",
     3: "STAGFLATION", 4: "DEFLATION", 0: "TRANSITIONING",
@@ -156,3 +158,51 @@ def update(current_regime: str, today: date) -> str:
         f"  Regime held: {last_regime}  →  now: {current_regime}\n"
         f"  Returns this week:\n{pos_lines}"
     )
+
+
+def compute_virtual_b_value(weights: dict[str, float], today: date) -> float:
+    """Compute and persist Portfolio B (ML-blend) virtual value for today.
+
+    Reuses _price_on() from this module — same price source as Portfolio A.
+    First run: initialise at _INITIAL_CASH_B and return that value.
+    Subsequent runs: last_value × (1 + Σ weight_i × return_i).
+    Same-day guard: if already updated today, return current value unchanged.
+    """
+    try:
+        value_series = read_series(_VALUE_SERIES_B, start="2020-01-01")
+    except Exception as exc:
+        logger.warning(f"Portfolio B: could not read state: {exc}")
+        return _INITIAL_CASH_B
+
+    if value_series.empty:
+        logger.info(f"Portfolio B: initialising at ${_INITIAL_CASH_B:,.0f}")
+        upsert_series(_VALUE_SERIES_B, pd.Series(
+            [_INITIAL_CASH_B], index=[pd.Timestamp(today)]
+        ))
+        return _INITIAL_CASH_B
+
+    last_date  = value_series.last_valid_index()
+    last_value = float(value_series.loc[last_date])
+
+    if (today - last_date.date()).days < 1:
+        logger.info("Portfolio B: already updated today — skipping")
+        return last_value
+
+    portfolio_return = 0.0
+    for ticker, w in weights.items():
+        p0 = _price_on(ticker, last_date.date())
+        p1 = _price_on(ticker, today)
+        if p0 and p1 and p0 > 0:
+            portfolio_return += w * ((p1 / p0) - 1)
+        else:
+            logger.warning(f"Portfolio B: missing price for {ticker} — treating as 0% return")
+
+    new_value  = last_value * (1 + portfolio_return)
+    total_pct  = (new_value / _INITIAL_CASH_B - 1) * 100
+
+    upsert_series(_VALUE_SERIES_B, pd.Series([new_value], index=[pd.Timestamp(today)]))
+    logger.info(
+        f"Portfolio B: week={portfolio_return*100:+.2f}%  "
+        f"total={total_pct:+.2f}%  value=${new_value:,.2f}"
+    )
+    return new_value

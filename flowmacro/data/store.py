@@ -99,6 +99,64 @@ def upsert_ml_regime_history(
     )
 
 
+def upsert_paper_portfolio_ml(
+    run_date: str,
+    ml_blend_probs: dict,
+    ml_raw_probs: dict,
+    rule_probs: dict,
+    blend_weights: dict,
+    portfolio_value: float,
+    period_return: float,
+    ml_regime: str,
+    ml_confidence: float,
+    ml_weight_used: float = 0.30,
+) -> None:
+    """Upsert one row into paper_portfolio_ml (Portfolio B virtual tracking)."""
+    client = _client()
+    row = {
+        "date":            run_date,
+        "ml_blend_probs":  ml_blend_probs,
+        "ml_raw_probs":    ml_raw_probs,
+        "rule_probs":      rule_probs,
+        "blend_weights":   blend_weights,
+        "portfolio_value": round(portfolio_value, 4),
+        "period_return":   round(period_return, 6),
+        "ml_regime":       ml_regime,
+        "ml_confidence":   round(float(ml_confidence), 2),
+        "ml_weight_used":  ml_weight_used,
+    }
+    _with_retry(
+        lambda: client.table("paper_portfolio_ml").upsert(row, on_conflict="date").execute(),
+        label="Supabase paper_portfolio_ml",
+    )
+    logger.debug(
+        f"paper_portfolio_ml upsert: {run_date} ml={ml_regime} "
+        f"conf={ml_confidence:.1f} value={portfolio_value:.2f}"
+    )
+
+
+def read_paper_portfolio_ml(start: str = "2020-01-01") -> pd.DataFrame:
+    """Read Portfolio B history. Returns DataFrame with date index and all columns."""
+    client = _client()
+    ref: list = []
+    _with_retry(
+        lambda: ref.append(
+            client.table("paper_portfolio_ml")
+            .select("date,portfolio_value,period_return,ml_regime,ml_confidence,ml_weight_used")
+            .gte("date", start)
+            .order("date")
+            .execute()
+        ),
+        label="Supabase read paper_portfolio_ml",
+    )
+    rows = ref[0].data
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.set_index("date")
+
+
 def _fetch_page(client, series_id: str, start: str, end: str | None, offset: int, page: int):
     query = (
         client.table("raw_series")

@@ -194,6 +194,8 @@ def run() -> None:
         )
 
         # 5d. Shadow ML prediction (does not affect portfolio — logging only)
+        ml_regime = None
+        ml_confidence = None
         try:
             from flowmacro.regime.ml_predictor import predict_ml
             from flowmacro.data.store import upsert_ml_regime_history
@@ -222,6 +224,54 @@ def run() -> None:
                 logger.info(f"Paper portfolio updated:\n{paper_summary}")
         except Exception as exc:
             logger.warning(f"Paper portfolio update skipped: {exc}")
+
+        # Step 6B: Portfolio B (ML-assisted) — virtual only, no live trades
+        if ml_regime is not None:
+            try:
+                from flowmacro.regime.probabilities import compute_ml_blended_probs
+                from flowmacro.broker.paper_portfolio import compute_virtual_b_value
+                from flowmacro.data.store import upsert_paper_portfolio_ml
+
+                blend_result = compute_ml_blended_probs(
+                    rule_probs=regime_probs,
+                    ml_regime=ml_regime,
+                    ml_confidence=ml_confidence,
+                    ml_weight=0.30,
+                )
+                _pb_weights = compute_blended_weights(blend_result.blended)
+                if _price_frames:
+                    _pb_weights = apply_momentum_filter(_pb_weights, price_history)
+                    _pb_weights = apply_vol_targeting(_pb_weights, returns_df)
+
+                _pb_prev_series = read_series(
+                    "paper_total_value_b",
+                    start=str(date.today() - timedelta(days=10)),
+                )
+                _pb_prev = (
+                    float(_pb_prev_series.dropna().iloc[-1])
+                    if not _pb_prev_series.empty else 3_000.0
+                )
+
+                _pb_value = compute_virtual_b_value(_pb_weights, date.today())
+                _pb_return = (_pb_value - _pb_prev) / _pb_prev if _pb_prev > 0 else 0.0
+
+                upsert_paper_portfolio_ml(
+                    run_date=str(date.today()),
+                    ml_blend_probs=blend_result.blended,
+                    ml_raw_probs=blend_result.ml_raw,
+                    rule_probs=blend_result.rule,
+                    blend_weights=_pb_weights,
+                    portfolio_value=_pb_value,
+                    period_return=_pb_return,
+                    ml_regime=ml_regime,
+                    ml_confidence=ml_confidence,
+                )
+                logger.info(
+                    f"Portfolio B: ml={ml_regime} conf={ml_confidence:.1f} "
+                    f"week={_pb_return*100:+.2f}% value=${_pb_value:,.2f}"
+                )
+            except Exception as exc:
+                logger.warning(f"Portfolio B Step 6B failed: {exc}")
 
         # 6. Alert — only on regime change or low confidence
         previous = _previous_regime()

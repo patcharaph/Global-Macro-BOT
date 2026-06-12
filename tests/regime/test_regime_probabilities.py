@@ -1,5 +1,11 @@
 import pytest
-from flowmacro.regime.probabilities import compute_regime_probabilities, REGIME_CENTROIDS
+from flowmacro.regime.probabilities import (
+    compute_regime_probabilities,
+    compute_ml_blended_probs,
+    REGIME_CENTROIDS,
+    REGIMES,
+    BlendedResult,
+)
 
 
 def test_probabilities_sum_to_one():
@@ -56,3 +62,74 @@ def test_centroid_gives_dominant_regime(regime, centroid):
     g, i = centroid
     probs = compute_regime_probabilities(g, i)
     assert max(probs, key=lambda r: probs[r]) == regime
+
+
+# ── compute_ml_blended_probs ──────────────────────────────────────────────────
+
+_RULE_PROBS = {
+    "GOLDILOCKS": 0.21,
+    "REFLATION":  0.31,
+    "STAGFLATION": 0.28,
+    "DEFLATION":  0.20,
+}  # must sum to 1.0 — function normalizes output so input must be normalized for boundary tests
+
+
+def test_ml_blended_returns_named_tuple():
+    result = compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 94.8)
+    assert isinstance(result, BlendedResult)
+    assert set(result.blended) == set(REGIMES)
+    assert set(result.ml_raw)  == set(REGIMES)
+    assert set(result.rule)    == set(REGIMES)
+
+
+def test_ml_blended_probs_sum_to_one():
+    result = compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 94.8)
+    assert abs(sum(result.blended.values()) - 1.0) < 1e-9
+
+
+def test_ml_raw_probs_sum_to_one():
+    result = compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 94.8)
+    assert abs(sum(result.ml_raw.values()) - 1.0) < 1e-9
+
+
+def test_ml_blended_weight_zero_equals_rule():
+    result = compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 94.8, ml_weight=0.0)
+    for r in REGIMES:
+        assert abs(result.blended[r] - _RULE_PROBS[r]) < 1e-9
+
+
+def test_ml_blended_weight_one_equals_ml_raw():
+    result = compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 94.8, ml_weight=1.0)
+    for r in REGIMES:
+        assert abs(result.blended[r] - result.ml_raw[r]) < 1e-9
+
+
+def test_ml_raw_concentration():
+    result = compute_ml_blended_probs(_RULE_PROBS, "STAGFLATION", 80.0)
+    assert abs(result.ml_raw["STAGFLATION"] - 0.80) < 1e-9
+    remaining = (1.0 - 0.80) / (len(REGIMES) - 1)
+    for r in REGIMES:
+        if r != "STAGFLATION":
+            assert abs(result.ml_raw[r] - remaining) < 1e-9
+
+
+def test_ml_blended_dominant_skews_toward_ml():
+    result = compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 94.8, ml_weight=0.30)
+    assert result.blended["REFLATION"] > _RULE_PROBS["REFLATION"]
+
+
+def test_ml_blended_invalid_regime_raises():
+    with pytest.raises(ValueError, match="Unknown ml_regime"):
+        compute_ml_blended_probs(_RULE_PROBS, "RECESSION", 80.0)
+
+
+def test_ml_blended_invalid_confidence_raises():
+    with pytest.raises(ValueError, match="ml_confidence"):
+        compute_ml_blended_probs(_RULE_PROBS, "REFLATION", 120.0)
+
+
+def test_ml_blended_rule_is_copy_not_reference():
+    original = dict(_RULE_PROBS)
+    result = compute_ml_blended_probs(original, "REFLATION", 94.8)
+    result.rule["GOLDILOCKS"] = 999.0
+    assert original["GOLDILOCKS"] == 0.21  # mutation guard

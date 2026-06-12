@@ -123,7 +123,7 @@ st.divider()
 
 # ── V2B Legacy (collapsed) ────────────────────────────────────────────────────
 with st.expander("V2B Legacy — equity curve (before Jun 2026)", expanded=False):
-    st.warning("Strategy รุ่นเก่า ใช้ hard classify ไม่มี softmax blend — เก็บไว้เพื่อ reference เท่านั้น")
+    st.warning("⚠️ แสดงผล V2B (legacy ก่อน V3 upgrade มิ.ย. 2026) — V3 results ดูที่ Walk-Forward Analysis ด้านบน")
 
     result = load_backtest_legacy()
     if result is None:
