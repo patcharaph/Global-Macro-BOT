@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+import pathlib
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -109,20 +110,6 @@ def load_backtest_summary() -> dict | None:
         return None
 
 
-@st.cache_data(ttl=3600)
-def load_v3_walkforward() -> pd.DataFrame | None:
-    import os
-    csv_path = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "backtest_v3_walkforward.csv")
-    csv_path = os.path.normpath(csv_path)
-    try:
-        if not os.path.exists(csv_path):
-            return None
-        df = pd.read_csv(csv_path)
-        return df
-    except Exception:
-        return None
-
-
 @st.cache_data(ttl=300)
 def load_staleness() -> pd.DataFrame:
     try:
@@ -221,6 +208,29 @@ def load_paper_portfolio() -> dict | None:
         return {"value_usd": current, "pnl_pct": pnl_pct, "as_of": str(last_date)}
     except Exception:
         return None
+
+
+@st.cache_data(ttl=86400)
+def load_backtest_oos() -> pd.Series:
+    try:
+        here = pathlib.Path(__file__).resolve()
+        root = here.parent.parent.parent  # dashboard/ → flowmacro/ → repo root
+        path = root / "scripts" / "backtest_v3.csv"
+        df = pd.read_csv(str(path), parse_dates=["Date"]).set_index("Date")
+        return df["oos_v3"].dropna()
+    except Exception:
+        return pd.Series(dtype=float)
+
+
+@st.cache_data(ttl=3600)
+def load_ticker_prices_rv(ticker: str, start: str) -> pd.Series:
+    try:
+        df = yf.download(ticker, start=start, progress=False, auto_adjust=True)
+        if df.empty:
+            return pd.Series(dtype=float)
+        return df["Close"].squeeze().dropna()
+    except Exception:
+        return pd.Series(dtype=float)
 
 
 @st.cache_data(ttl=300)
@@ -711,67 +721,79 @@ else:
 
 st.divider()
 
-# ── Backtest V3 Walk-Forward ──────────────────────────────────────────────────
-st.subheader("Backtest V3 — Walk-Forward Analysis (11 windows)")
-st.caption("5Y train / 2Y test / 1Y roll  •  V2B = hard classify  •  V3 = softmax blend  •  V3F = V3 + momentum + vol target")
+# ── Returns vs Benchmark ─────────────────────────────────────────────────────
+st.subheader("Returns vs Benchmark")
 
-wf_df = load_v3_walkforward()
-if wf_df is None:
-    st.info("No V3 backtest data — run `python scripts/backtest_v3.py`")
-else:
-    # Mean stats
-    mean_v2b = wf_df["v2b_sharpe"].mean()
-    mean_v3  = wf_df["v3_sharpe"].mean()
-    mean_v3f = wf_df["v3f_sharpe"].mean()
-    mean_dd_v2b = wf_df["v2b_dd"].mean()
-    mean_dd_v3  = wf_df["v3_dd"].mean()
-    mean_dd_v3f = wf_df["v3f_dd"].mean()
+_BM_START_RV    = "2021-01-01"
+_live_weeks_rv  = (date.today() - date(2026, 6, 3)).days // 7
+_oos_rv         = load_backtest_oos()
+_spy_rv         = load_ticker_prices_rv("SPY", start=_BM_START_RV)
+_agg_rv         = load_ticker_prices_rv("AGG", start=_BM_START_RV)
+_pp_rv          = load_paper_portfolio()
 
-    mc1, mc2, mc3 = st.columns(3)
-    mc1.metric("V2B mean OOS Sharpe", f"{mean_v2b:.2f}", help="Rule-based hard classify baseline")
-    mc2.metric("V3 mean OOS Sharpe",  f"{mean_v3:.2f}",  delta=f"+{mean_v3 - mean_v2b:.2f} vs V2B")
-    mc3.metric("V3F mean OOS Sharpe", f"{mean_v3f:.2f}", delta=f"+{mean_v3f - mean_v2b:.2f} vs V2B")
 
-    md1, md2, md3 = st.columns(3)
-    md1.metric("V2B mean MaxDD",  f"{mean_dd_v2b:.1f}%")
-    md2.metric("V3 mean MaxDD",   f"{mean_dd_v3:.1f}%",  delta=f"{mean_dd_v3 - mean_dd_v2b:.1f}%", delta_color="inverse")
-    md3.metric("V3F mean MaxDD",  f"{mean_dd_v3f:.1f}%", delta=f"{mean_dd_v3f - mean_dd_v2b:.1f}%", delta_color="inverse")
+def _fmt_ret(v: float | None) -> str:
+    if v is None:
+        return "—"
+    return f"{'+'if v >= 0 else ''}{v:.1f}%"
 
-    # Bar chart — Sharpe per window
-    short_labels = [w.split(":")[0] for w in wf_df["window"]]
-    fig_wf = go.Figure()
-    for col, name, color in [
-        ("v2b_sharpe", "V2B", "#8888aa"),
-        ("v3_sharpe",  "V3",  "#00ff88"),
-        ("v3f_sharpe", "V3F", "#00d4ff"),
-    ]:
-        fig_wf.add_trace(go.Bar(
-            name=name,
-            x=short_labels,
-            y=wf_df[col],
-            marker_color=color,
-            hovertemplate=f"{name} %{{x}}: %{{y:.2f}}<extra></extra>",
-        ))
-    fig_wf.add_hline(y=0.9, line=dict(color="rgba(255,204,0,0.5)", width=1, dash="dash"),
-                     annotation_text="target 0.90", annotation_font=dict(color="rgba(255,204,0,0.6)", size=9))
-    fig_wf.update_layout(
-        barmode="group",
-        height=260,
-        margin=dict(l=10, r=10, t=10, b=60),
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        xaxis=dict(showgrid=False, color="rgba(0,212,255,0.6)",
-                   tickangle=-30, tickfont=dict(size=9, family="monospace")),
-        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.07)",
-                   color="rgba(0,212,255,0.6)", title="Sharpe"),
-        legend=dict(orientation="h", y=1.08, font=dict(size=10)),
-    )
-    st.plotly_chart(fig_wf, use_container_width=True, config={"displayModeBar": False})
 
-    with st.expander("Raw Walk-Forward Table", expanded=False):
-        display_df = wf_df.copy()
-        display_df.columns = ["Window", "V2B Sharpe", "V3 Sharpe", "V3F Sharpe", "V2B DD%", "V3 DD%", "V3F DD%"]
-        st.dataframe(display_df.round(2), use_container_width=True, hide_index=True)
+def _oos_ret(start: str) -> float | None:
+    if _oos_rv.empty:
+        return None
+    sub = _oos_rv[_oos_rv.index >= pd.Timestamp(start)].dropna()
+    if len(sub) < 2:
+        return None
+    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
+
+
+def _bm_spy(start: str) -> float | None:
+    sub = _spy_rv[_spy_rv.index >= pd.Timestamp(start)].dropna()
+    if len(sub) < 2:
+        return None
+    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
+
+
+def _bm_6040(start: str) -> float | None:
+    s = pd.Timestamp(start)
+    spy_s = _spy_rv[_spy_rv.index >= s].dropna()
+    agg_s = _agg_rv[_agg_rv.index >= s].dropna()
+    if len(spy_s) < 2 or len(agg_s) < 2:
+        return None
+    return 0.60 * (float(spy_s.iloc[-1] / spy_s.iloc[0]) - 1) * 100 + \
+           0.40 * (float(agg_s.iloc[-1] / agg_s.iloc[0]) - 1) * 100
+
+
+_rv_periods = [
+    ("YTD",                              "2026-01-01",                         "backtest OOS"),
+    ("1Y",  str(date.today() - timedelta(days=365)),   "backtest OOS"),
+    ("2Y",  str(date.today() - timedelta(days=730)),   "backtest OOS"),
+    ("3Y",  str(date.today() - timedelta(days=1095)),  "backtest OOS"),
+    ("5Y",  str(date.today() - timedelta(days=1825)),  "backtest OOS"),
+    (f"Since live ({_live_weeks_rv}w)", "2026-06-03",  "LIVE"),
+]
+
+_rv_rows = []
+for _pl, _ps, _src in _rv_periods:
+    if _src == "LIVE":
+        _live_ret = _pp_rv["pnl_pct"] if _pp_rv else None
+        _fm_cell  = f"{_fmt_ret(_live_ret)} (live)" if _live_ret is not None else "—"
+    else:
+        _fm_cell = _fmt_ret(_oos_ret(_ps))
+
+    _rv_rows.append({
+        "Period":          _pl,
+        "FlowMacro V3":   _fm_cell,
+        "Source":         _src,
+        "SPY":            _fmt_ret(_bm_spy(_ps)),
+        "60/40 (SPY+AGG)": _fmt_ret(_bm_6040(_ps)),
+    })
+
+st.dataframe(pd.DataFrame(_rv_rows), use_container_width=True, hide_index=True)
+st.caption(
+    "FlowMacro V3 YTD–5Y = **backtest OOS** (out-of-sample 2020–2026, ไม่ได้ใช้ fit ข้อมูลช่วงนั้น)  "
+    "•  Since live = ผลจริง portfolio A  •  Benchmark = yfinance actual prices"
+)
 
 st.divider()
 

@@ -1,6 +1,5 @@
 """Paper Trading P&L Tracker — FlowMacro virtual portfolio."""
 from datetime import date, timedelta
-import pathlib
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -49,19 +48,6 @@ def load_regime_history() -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=86400)
-def load_backtest_oos() -> pd.Series:
-    try:
-        # resolve from repo root regardless of CWD
-        here = pathlib.Path(__file__).resolve()
-        root = here.parent.parent.parent.parent  # pages/ → dashboard/ → flowmacro/ → repo root
-        path = root / "scripts" / "backtest_v3.csv"
-        df = pd.read_csv(str(path), parse_dates=["Date"]).set_index("Date")
-        return df["oos_v3"].dropna()
-    except Exception:
-        return pd.Series(dtype=float)
-
-
 @st.cache_data(ttl=3600)
 def load_ticker_prices(ticker: str, start: str) -> pd.Series:
     try:
@@ -90,33 +76,6 @@ def load_regime_probs() -> dict[str, float] | None:
         return probs if len(probs) == 4 else None
     except Exception:
         return None
-
-
-def _period_return(
-    values: pd.Series, start: str
-) -> tuple[float | None, str]:
-    """Return (return_pct, label) from `start` to latest in series."""
-    start_ts = pd.Timestamp(start)
-    subset = values[values.index >= start_ts].dropna()
-    if len(subset) >= 2:
-        weeks = len(subset) - 1
-        pct = (float(subset.iloc[-1]) / float(subset.iloc[0]) - 1) * 100
-        return pct, f"live {weeks}w"
-    if len(subset) == 1:
-        return 0.0, "live 1w"
-    return None, "—"
-
-
-def _bm_return(spy: pd.Series, agg: pd.Series, start: str) -> float | None:
-    """60/40 benchmark return from start to latest."""
-    s = pd.Timestamp(start)
-    spy_s = spy[spy.index >= s].dropna()
-    agg_s = agg[agg.index >= s].dropna()
-    if len(spy_s) < 2 or len(agg_s) < 2:
-        return None
-    r_spy = float(spy_s.iloc[-1] / spy_s.iloc[0] - 1) * 100
-    r_agg = float(agg_s.iloc[-1] / agg_s.iloc[0] - 1) * 100
-    return 0.60 * r_spy + 0.40 * r_agg
 
 
 values    = load_paper_values()
@@ -269,73 +228,6 @@ if log_rows:
         use_container_width=True,
         hide_index=True,
     )
-
-st.divider()
-
-# ── C.1 Return table ──────────────────────────────────────────────────────────
-st.subheader("Returns vs Benchmark")
-
-_LIVE_START   = "2026-06-03"
-_BM_START     = "2021-01-01"   # 5Y lookback
-_oos          = load_backtest_oos()
-_spy_prices   = load_ticker_prices("SPY", start=_BM_START)
-_agg_prices   = load_ticker_prices("AGG", start=_BM_START)
-_live_weeks   = max(0, len(values) - 1)
-
-def _fmt_ret(v: float | None) -> str:
-    if v is None:
-        return "—"
-    sign = "+" if v >= 0 else ""
-    return f"{sign}{v:.1f}%"
-
-
-def _oos_ret(start: str) -> float | None:
-    if _oos.empty:
-        return None
-    sub = _oos[_oos.index >= pd.Timestamp(start)].dropna()
-    if len(sub) < 2:
-        return None
-    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
-
-
-def _bm_spy(start: str) -> float | None:
-    sub = _spy_prices[_spy_prices.index >= pd.Timestamp(start)].dropna()
-    if len(sub) < 2:
-        return None
-    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
-
-
-_periods = [
-    ("YTD",                          "2026-01-01",  "backtest OOS"),
-    ("1Y",                           str((date.today() - timedelta(days=365))), "backtest OOS"),
-    ("2Y",                           str((date.today() - timedelta(days=730))), "backtest OOS"),
-    ("3Y",                           str((date.today() - timedelta(days=1095))), "backtest OOS"),
-    ("5Y",                           str((date.today() - timedelta(days=1825))), "backtest OOS"),
-    (f"Since live ({_live_weeks}w)", _LIVE_START,   "LIVE"),
-]
-
-_ret_rows = []
-for _plabel, _pstart, _src in _periods:
-    if _src == "LIVE":
-        _fm_ret, _ = _period_return(values, _pstart)
-        _fm_cell   = f"{_fmt_ret(_fm_ret)} (live)" if _fm_ret is not None else "—"
-    else:
-        _fm_ret  = _oos_ret(_pstart)
-        _fm_cell = f"{_fmt_ret(_fm_ret)}" if _fm_ret is not None else "—"
-
-    _ret_rows.append({
-        "Period":          _plabel,
-        "FlowMacro V3":   _fm_cell,
-        "Source":         _src,
-        "SPY":            _fmt_ret(_bm_spy(_pstart)),
-        "60/40 (SPY+AGG)": _fmt_ret(_bm_return(_spy_prices, _agg_prices, _pstart)),
-    })
-
-st.dataframe(pd.DataFrame(_ret_rows), use_container_width=True, hide_index=True)
-st.caption(
-    "FlowMacro V3 YTD–5Y = **backtest OOS** (out-of-sample 2020–2026, ไม่ได้ใช้ fit ข้อมูลช่วงนั้น)  "
-    "•  Since live = ผลจริง portfolio A  •  Benchmark = yfinance actual prices"
-)
 
 st.divider()
 

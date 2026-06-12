@@ -245,11 +245,11 @@ streamlit run flowmacro/dashboard/app.py
 ```
 
 Dashboard มี 6 pages:
-- **Home** — Regime + action banner + signal strength + AI thesis + COT signals + blended weights
+- **Home** — Regime + action banner + signal strength + AI thesis + COT signals + blended weights + returns vs benchmark
 - **Backtest** — V3 walk-forward results + V2B legacy expander + equity curves
 - **Health** — Data staleness + pipeline run history
 - **Data** — Raw data explorer (browse + download any series จาก Supabase)
-- **Paper Trading** — Portfolio A P&L, equity curve, weekly log, returns vs SPY/60-40, position P&L
+- **Paper Trading** — Portfolio A P&L, equity curve, weekly log, position P&L, expected returns
 - **A/B Test** — Portfolio A (rule-based) vs B (ML-blend 30%) equity curves + Sharpe + MaxDD
 
 ### Run Scheduler Manually
