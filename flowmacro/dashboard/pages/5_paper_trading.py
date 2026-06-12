@@ -1,5 +1,6 @@
 """Paper Trading P&L Tracker — FlowMacro virtual portfolio."""
 from datetime import date, timedelta
+import pathlib
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -46,6 +47,16 @@ def load_regime_history() -> pd.DataFrame:
         return df.set_index("run_date")
     except Exception:
         return pd.DataFrame()
+
+
+@st.cache_data(ttl=86400)
+def load_backtest_oos() -> pd.Series:
+    try:
+        path = pathlib.Path(__file__).parent.parent.parent / "scripts" / "backtest_v3.csv"
+        df = pd.read_csv(path, parse_dates=["Date"]).set_index("Date")
+        return df["oos_v3"].dropna()
+    except Exception:
+        return pd.Series(dtype=float)
 
 
 @st.cache_data(ttl=3600)
@@ -261,46 +272,67 @@ st.divider()
 # ── C.1 Return table ──────────────────────────────────────────────────────────
 st.subheader("Returns vs Benchmark")
 
-_LIVE_START = "2026-06-03"
-_spy_prices = load_ticker_prices("SPY", start="2026-01-01")
-_agg_prices = load_ticker_prices("AGG", start="2026-01-01")
+_LIVE_START   = "2026-06-03"
+_BM_START     = "2021-01-01"   # 5Y lookback
+_oos          = load_backtest_oos()
+_spy_prices   = load_ticker_prices("SPY", start=_BM_START)
+_agg_prices   = load_ticker_prices("AGG", start=_BM_START)
+_live_weeks   = max(0, len(values) - 1)
 
 def _fmt_ret(v: float | None) -> str:
     if v is None:
         return "—"
-    return f"+{v:.2f}%" if v >= 0 else f"{v:.2f}%"
+    color = "green" if v >= 0 else "red"
+    sign  = "+" if v >= 0 else ""
+    return f":{color}[{sign}{v:.1f}%]"
 
 
-_live_weeks = max(0, len(values) - 1)
-_period_map = [
-    ("YTD",                     "2026-01-01"),
-    ("1M",                      str(date.today() - timedelta(days=30))),
-    (f"Since live ({_live_weeks}w)", _LIVE_START),
+def _oos_ret(start: str) -> float | None:
+    if _oos.empty:
+        return None
+    sub = _oos[_oos.index >= pd.Timestamp(start)].dropna()
+    if len(sub) < 2:
+        return None
+    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
+
+
+def _bm_spy(start: str) -> float | None:
+    sub = _spy_prices[_spy_prices.index >= pd.Timestamp(start)].dropna()
+    if len(sub) < 2:
+        return None
+    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
+
+
+_periods = [
+    ("YTD",                          "2026-01-01",  "backtest OOS"),
+    ("1Y",                           str((date.today() - timedelta(days=365))), "backtest OOS"),
+    ("2Y",                           str((date.today() - timedelta(days=730))), "backtest OOS"),
+    ("3Y",                           str((date.today() - timedelta(days=1095))), "backtest OOS"),
+    ("5Y",                           str((date.today() - timedelta(days=1825))), "backtest OOS"),
+    (f"Since live ({_live_weeks}w)", _LIVE_START,   "LIVE"),
 ]
 
 _ret_rows = []
-for _plabel, _pstart in _period_map:
-    _fm_ret, _fm_label = _period_return(values, _pstart)
-    _spy_sub = _spy_prices[_spy_prices.index >= pd.Timestamp(_pstart)].dropna()
-    _spy_ret = (
-        (float(_spy_sub.iloc[-1]) / float(_spy_sub.iloc[0]) - 1) * 100
-        if len(_spy_sub) >= 2 else None
-    )
-    _bm60_ret = _bm_return(_spy_prices, _agg_prices, _pstart)
-    _fm_cell = (
-        f"{_fmt_ret(_fm_ret)} (live {_fm_label})"
-        if _fm_ret is not None else "—"
-    )
+for _plabel, _pstart, _src in _periods:
+    if _src == "LIVE":
+        _fm_ret, _ = _period_return(values, _pstart)
+        _fm_cell   = f"{_fmt_ret(_fm_ret)} ✦live" if _fm_ret is not None else "—"
+    else:
+        _fm_ret  = _oos_ret(_pstart)
+        _fm_cell = f"{_fmt_ret(_fm_ret)}" if _fm_ret is not None else "—"
+
     _ret_rows.append({
-        "Period":           _plabel,
-        "FlowMacro A":      _fm_cell,
-        "SPY":              _fmt_ret(_spy_ret),
-        "60/40 (SPY+AGG)":  _fmt_ret(_bm60_ret),
+        "Period":          _plabel,
+        "FlowMacro V3":   _fm_cell,
+        "Source":         _src,
+        "SPY":            _fmt_ret(_bm_spy(_pstart)),
+        "60/40 (SPY+AGG)": _fmt_ret(_bm_return(_spy_prices, _agg_prices, _pstart)),
     })
 
 st.dataframe(pd.DataFrame(_ret_rows), use_container_width=True, hide_index=True)
 st.caption(
-    "FlowMacro A เริ่ม live 2026-06-03 — YTD/1M แสดงเฉพาะ benchmark (ไม่มีข้อมูล FlowMacro ก่อน live)"
+    "FlowMacro V3 YTD–5Y = **backtest OOS** (out-of-sample 2020–2026, ไม่ได้ใช้ fit ข้อมูลช่วงนั้น)  "
+    "•  Since live = ผลจริง portfolio A  •  Benchmark = yfinance actual prices"
 )
 
 st.divider()
