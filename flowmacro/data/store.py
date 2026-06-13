@@ -154,23 +154,34 @@ def upsert_features_v2(run_date: str, features: dict) -> None:
 
 
 def read_features_v2(start: str = "2010-01-01") -> pd.DataFrame:
-    """Read macro_features_v2 table. Returns DataFrame with date index."""
+    """Read macro_features_v2 table. Returns DataFrame with date index.
+    Paginates in 1000-row chunks to avoid PostgREST max_rows cap.
+    """
     client = _client()
-    ref: list = []
-    _with_retry(
-        lambda: ref.append(
-            client.table("macro_features_v2")
-            .select("*")
-            .gte("date", start)
-            .order("date")
-            .execute()
-        ),
-        label="Supabase read macro_features_v2",
-    )
-    rows = ref[0].data
-    if not rows:
+    all_rows: list = []
+    page_size = 1000
+    offset = 0
+    while True:
+        ref: list = []
+        _with_retry(
+            lambda off=offset: ref.append(
+                client.table("macro_features_v2")
+                .select("*")
+                .gte("date", start)
+                .order("date")
+                .range(off, off + page_size - 1)
+                .execute()
+            ),
+            label="Supabase read macro_features_v2",
+        )
+        batch = ref[0].data
+        all_rows.extend(batch)
+        if len(batch) < page_size:
+            break
+        offset += page_size
+    if not all_rows:
         return pd.DataFrame()
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(all_rows)
     df["date"] = pd.to_datetime(df["date"])
     return df.set_index("date").drop(columns=["created_at"], errors="ignore")
 
