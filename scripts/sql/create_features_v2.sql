@@ -5,9 +5,9 @@ CREATE TABLE IF NOT EXISTS macro_features_v2 (
     date DATE PRIMARY KEY,
 
     -- Group 2: Macro Leading (5 features)
-    hy_spread_pr                FLOAT,   -- BofA HY OAS percentile rank 260W
+    hy_spread_pr                FLOAT,   -- Moody's Baa spread (BAA10Y) percentile rank 260W
     tips_breakeven_5y_pr        FLOAT,   -- T5YIE percentile rank 260W
-    china_pmi_pr                FLOAT,   -- CPMINDXM percentile rank 260W
+    china_pmi_pr                FLOAT,   -- OECD CLI China (BSCICP03CNM665S) percentile rank 260W
     copper_gold_ratio_pr        FLOAT,   -- HG=F/GC=F percentile rank 260W
     policy_forward_signal_pr    FLOAT,   -- (DGS1 - FEDFUNDS) percentile rank 260W
 
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS macro_features_v2 (
     dxy_return_13w              FLOAT,   -- DX-Y.NYB 13W return percentile rank 260W
     dbc_return_13w              FLOAT,   -- DBC 13W return percentile rank 260W
     gld_return_13w              FLOAT,   -- GLD 13W return percentile rank 260W
-    hy_spread_momentum_4w       FLOAT,   -- BAMLH0A0HYM2 delta vs 4W ago (raw %)
+    hy_spread_momentum_4w       FLOAT,   -- Moody's Baa spread delta vs 4W ago (raw %)
 
     created_at TIMESTAMPTZ DEFAULT NOW()
 );

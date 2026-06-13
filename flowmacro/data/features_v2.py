@@ -81,8 +81,10 @@ def build_macro_leading(start: str, end: str | None = None) -> pd.DataFrame:
     """Fetch and compute 5 macro leading features (Group 2)."""
     frames: dict[str, pd.Series] = {}
 
-    # hy_spread_pr: BofA HY OAS — credit cycle, leads recession 6–12M
-    s = _fetch_fred_weekly("BAMLH0A0HYM2", start, end)
+    # hy_spread_pr: Moody's Baa credit spread over 10Y Treasury — leads recession 6–12M
+    # Note: BAMLH0A0HYM2 (ICE BofA HY OAS) was removed from FRED ~2020 by ICE licensing;
+    #       BAA10Y has data since 1986 and captures the same credit-cycle signal.
+    s = _fetch_fred_weekly("BAA10Y", start, end)
     if not s.empty:
         frames["hy_spread_pr"] = percentile_rank(s)
 
@@ -91,8 +93,9 @@ def build_macro_leading(start: str, end: str | None = None) -> pd.DataFrame:
     if not s.empty:
         frames["tips_breakeven_5y_pr"] = percentile_rank(s)
 
-    # china_pmi_pr: China manufacturing PMI (monthly → W-FRI ffill)
-    s = _fetch_fred_weekly("CPMINDXM", start, end)
+    # china_pmi_pr: OECD Composite Leading Indicator for China (monthly → W-FRI ffill)
+    # Note: CPMINDXM does not exist on FRED; BSCICP03CNM665S is the OECD CLI for China
+    s = _fetch_fred_weekly("BSCICP03CNM665S", start, end)
     if not s.empty:
         frames["china_pmi_pr"] = percentile_rank(s)
 
@@ -138,8 +141,8 @@ def build_price_leading(start: str, end: str | None = None) -> pd.DataFrame:
     if not t10.empty and not t2.empty:
         frames["yield_curve_momentum_4w"] = (t10 - t2).diff(4)
 
-    # hy_spread_momentum_4w: spread widening speed — raw delta, NO percentile_rank
-    hy = _fetch_fred_weekly("BAMLH0A0HYM2", start, end)
+    # hy_spread_momentum_4w: credit spread widening speed — raw delta, NO percentile_rank
+    hy = _fetch_fred_weekly("BAA10Y", start, end)
     if not hy.empty:
         frames["hy_spread_momentum_4w"] = hy.diff(4)
 
