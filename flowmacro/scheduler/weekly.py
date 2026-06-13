@@ -35,6 +35,12 @@ _REGIME_NAME = {v: k for k, v in _REGIME_CODE.items()}
 _LOW_CONFIDENCE_THRESHOLD = 60.0
 _USE_ML_V2 = False   # flip to True after graduation + promote_model_v2.py
 
+# Live trading gate — set FLOWMACRO_LIVE_TRADING=true in GitHub Actions secrets to enable
+# Requires: IB Gateway running + IBKR_HOST/IBKR_PORT/IBKR_CLIENT_ID env vars
+import os as _os
+_LIVE_TRADING   = _os.getenv("FLOWMACRO_LIVE_TRADING", "").lower() == "true"
+_LIVE_DRY_RUN   = _os.getenv("FLOWMACRO_DRY_RUN", "").lower() == "true"  # connect but don't submit
+
 
 def _previous_regime() -> str | None:
     """Read last stored regime from Supabase. Returns regime name or None."""
@@ -170,6 +176,38 @@ def run() -> None:
             _should_rebal = needs_rebalance(_prev_weights, blended_weights)
             _trades = compute_trades(_prev_weights, blended_weights, 100_000.0) if _should_rebal else []
             logger.info(f"Rebalance needed: {_should_rebal} | {len(_trades)} trades")
+
+        # V3 Step 6B: Live IBKR execution (only when FLOWMACRO_LIVE_TRADING=true)
+        _exec_summary: dict = {}
+        if _LIVE_TRADING or _LIVE_DRY_RUN:
+            try:
+                from flowmacro.broker.ibkr import IBKRBroker
+                from flowmacro.broker.executor import execute_rebalance
+                _broker = IBKRBroker.connect()
+                try:
+                    _exec_summary = execute_rebalance(
+                        broker         = _broker,
+                        target_weights = blended_weights,
+                        dry_run        = _LIVE_DRY_RUN,
+                    )
+                    logger.info(
+                        f"IBKR execution: {_exec_summary['orders']} orders  "
+                        f"portfolio=${_exec_summary['portfolio_value']:,.0f}  "
+                        f"dry_run={_exec_summary['dry_run']}"
+                    )
+                    if _exec_summary["errors"]:
+                        logger.error(f"IBKR order errors: {_exec_summary['errors']}")
+                finally:
+                    _broker.disconnect()
+            except Exception as exc:
+                logger.error(f"IBKR execution failed: {exc}")
+                try:
+                    from flowmacro.alerts.gmail import send_alert
+                    send_alert("FlowMacro IBKR Execution FAILED", str(exc))
+                except Exception:
+                    pass
+        else:
+            logger.info("Live trading disabled (FLOWMACRO_LIVE_TRADING != true) — paper only")
 
         # 5. Store regime data
         today_ts = pd.Timestamp(date.today())
@@ -350,6 +388,17 @@ def run() -> None:
             from flowmacro.alerts.gmail import send_alert
             prev_str = previous or "unknown"
             paper_section = f"\n\n{'─'*40}\n{paper_summary}" if paper_summary else ""
+            _exec_section = ""
+            if _exec_summary:
+                _mode = "DRY-RUN" if _exec_summary.get("dry_run") else "LIVE"
+                _exec_section = (
+                    f"\n\n{'─'*40}\n"
+                    f"IBKR Execution [{_mode}]\n"
+                    f"  Orders submitted: {_exec_summary['orders']}\n"
+                    f"  Portfolio value:  ${_exec_summary['portfolio_value']:,.2f}\n"
+                    f"  Order IDs:        {', '.join(_exec_summary['order_ids']) or '—'}\n"
+                    + (f"  ERRORS: {'; '.join(_exec_summary['errors'])}\n" if _exec_summary["errors"] else "")
+                )
 
             # Format regime probabilities for email
             sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
@@ -374,6 +423,7 @@ def run() -> None:
                 f"{', '.join(normalized_latest.keys())}"
                 f"{thesis_body}"
                 f"{paper_section}"
+                f"{_exec_section}"
             )
             send_alert(
                 f"Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]",
