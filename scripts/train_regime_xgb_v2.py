@@ -159,11 +159,11 @@ def print_summary(
     print("XGBoost v2 SUMMARY  (v1 baseline: 66.3% acc, NBER 5/6)")
     print("=" * 65)
     print(f"Walk-forward accuracy : {wf['overall_accuracy']:.1%}  "
-          f"{'✅' if acc_ok  else '❌'}  (must beat 66.3%)")
+          f"{'[OK]' if acc_ok  else '[!!]'}  (must beat 66.3%)")
     print(f"NBER episodes passed  : {nber['passed']}/{nber['total']}  "
-          f"{'✅' if nber_ok else '❌'}  (need ≥5/6)")
+          f"{'[OK]' if nber_ok else '[!!]'}  (need >=5/6)")
     print(f"Sample/feature ratio  : {ratio:.1f}:1   "
-          f"{'✅' if ratio_ok else '❌'}  (need ≥20:1)")
+          f"{'[OK]' if ratio_ok else '[!!]'}  (need >=20:1)")
     print(f"Features              : {n_features}  (pruned old: {pruned})")
 
     per_class_lines = [
@@ -244,11 +244,11 @@ def main(prune_threshold: float = _PRUNE_THRESHOLD, use_shap: bool = True) -> No
 
     print()
     if all_ok:
-        print("✅ All criteria met — READY for graduation promotion")
+        print("[OK] All criteria met — READY for graduation promotion")
         print("   When Dec 2026 graduation criteria are satisfied, run:")
         print("   python scripts/promote_model_v2.py")
     else:
-        print("⚠️  Some criteria not met — review results and retrain before promoting")
+        print("[!!] Some criteria not met — review results and retrain before promoting")
 
 
 if __name__ == "__main__":
