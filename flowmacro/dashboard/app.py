@@ -6,6 +6,7 @@ import streamlit as st
 import yfinance as yf
 from supabase import create_client
 from flowmacro.config import settings
+from flowmacro.portfolio.allocator import REGIME_WEIGHTS, compute_blended_weights
 
 st.set_page_config(page_title="FlowMacro", layout="wide")
 
@@ -913,7 +914,6 @@ st.divider()
 # ── Portfolio Allocation ──────────────────────────────────────────────────────
 st.subheader("Portfolio Allocation — ตอนนี้ถืออะไรบ้าง")
 st.caption("Blended allocation = ถ่วงน้ำหนักทุก regime ตาม softmax probability พร้อมกัน ไม่ใช่ hard switch")
-from flowmacro.portfolio.allocator import REGIME_WEIGHTS, compute_blended_weights
 
 _ASSET_COLOR = {
     "SPY": "#00ff88", "QQQ": "#00cc66", "IWM": "#009944", "EFA": "#44ffaa", "EEM": "#88ffcc",
