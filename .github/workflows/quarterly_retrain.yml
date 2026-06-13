@@ -19,11 +19,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Retrain XGBoost model and upload to Supabase Storage
+      - name: Retrain XGBoost v1 and upload to Supabase Storage
         env:
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
           SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
           GMAIL_SENDER:       ${{ secrets.GMAIL_SENDER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           GMAIL_RECIPIENT:    ${{ secrets.GMAIL_RECIPIENT }}
         run: python scripts/train_regime_xgb.py
+
+      - name: Retrain XGBoost v2 (shadow) and upload xgb_regime_v2.pkl
+        env:
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          SUPABASE_URL:       ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY:       ${{ secrets.SUPABASE_KEY }}
+        run: python scripts/train_regime_xgb_v2.py --no-shap
+
+      - name: Print v2 retrain summary
+        run: echo "v2 retrain done - check Supabase Storage for xgb_regime_v2.pkl"
