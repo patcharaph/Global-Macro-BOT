@@ -74,9 +74,12 @@ def main() -> None:
     explainer   = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_tr)
 
-    # For multiclass XGBoost, shap_values is list[n_classes] each (n_samples, n_features)
+    # shap < 0.45:  list of (n_samples, n_features) per class
+    # shap >= 0.45: single 3D array (n_samples, n_features, n_classes)
     if isinstance(shap_values, list):
         mean_abs = np.mean([np.abs(sv).mean(axis=0) for sv in shap_values], axis=0)
+    elif shap_values.ndim == 3:
+        mean_abs = np.abs(shap_values).mean(axis=(0, 2))
     else:
         mean_abs = np.abs(shap_values).mean(axis=0)
 
@@ -98,8 +101,8 @@ def main() -> None:
 
     for threshold in [20, 25]:
         ratio = 712 / (keep + 14)
-        status = "✅" if ratio >= threshold else "⚠️"
-        print(f"  {status} Sample/feature ≥{threshold}: {ratio:.1f}:1")
+        status = "OK" if ratio >= threshold else "!!"
+        print(f"  [{status}] Sample/feature >={threshold}: {ratio:.1f}:1")
 
     # Save importance table for reference
     out = Path(__file__).parent / "feature_importance_shap.csv"

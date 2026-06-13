@@ -77,9 +77,12 @@ def shap_prune(X_old: pd.DataFrame, threshold: float) -> list[str]:
         explainer   = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X_imp)
 
-        # Multiclass: list[n_classes] each (n_samples, n_features) → mean over classes
+        # shap < 0.45:  list of (n_samples, n_features) per class
+        # shap >= 0.45: single 3D array (n_samples, n_features, n_classes)
         if isinstance(shap_values, list):
             mean_abs = np.mean([np.abs(sv).mean(axis=0) for sv in shap_values], axis=0)
+        elif shap_values.ndim == 3:
+            mean_abs = np.abs(shap_values).mean(axis=(0, 2))
         else:
             mean_abs = np.abs(shap_values).mean(axis=0)
 
