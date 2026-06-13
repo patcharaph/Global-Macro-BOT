@@ -236,11 +236,28 @@ def main(prune_threshold: float = _PRUNE_THRESHOLD, use_shap: bool = True) -> No
     logger.info(f"Model saved locally → {out_path}")
 
     # Step 8b: Upload to Supabase as xgb_regime_v2.pkl (NOT promoting to latest)
+    uploaded = False
     try:
         from flowmacro.regime.ml_predictor import upload_model_v2
         upload_model_v2(str(out_path))
+        uploaded = True
     except Exception as exc:
         logger.warning(f"Supabase upload failed: {exc} — model saved locally only")
+
+    # Step 8c: Write metadata row to ml_model_meta (dashboard reads this, not the pkl)
+    if uploaded:
+        try:
+            from flowmacro.data.store import _client as _sb_client
+            _sb_client().table("ml_model_meta").insert({
+                "model_key":       "xgb_regime_v2",
+                "wf_accuracy":     wf["overall_accuracy"],
+                "nber_passed":     nber["passed"],
+                "n_features":      len(feat_names),
+                "pruned_features": pruned,
+            }).execute()
+            logger.info("Metadata written to ml_model_meta")
+        except Exception as exc:
+            logger.warning(f"Metadata write failed: {exc}")
 
     print()
     if all_ok:

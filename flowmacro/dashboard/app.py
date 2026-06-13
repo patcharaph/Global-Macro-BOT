@@ -264,6 +264,32 @@ def load_regime_history(weeks: int = 52) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_v2_bundle() -> dict:
+    """Load v2 model metadata from ml_model_meta table (lightweight — no pkl download)."""
+    try:
+        rows = (
+            _db().table("ml_model_meta")
+            .select("*")
+            .eq("model_key", "xgb_regime_v2")
+            .order("trained_at", desc=True)
+            .limit(1)
+            .execute().data
+        )
+        if not rows:
+            return {"ok": False}
+        r = rows[0]
+        return {
+            "ok":          True,
+            "wf_accuracy": r.get("wf_accuracy"),
+            "nber_passed": r.get("nber_passed"),
+            "n_features":  r.get("n_features"),
+            "pruned":      r.get("pruned_features") or [],
+            "trained_at":  r.get("trained_at", ""),
+        }
+    except Exception:
+        return {"ok": False}
+
+
 def load_ml_shadow() -> dict:
     try:
         rows = (
@@ -784,6 +810,88 @@ else:
             f"Live:      {_period_sym}",
             unsafe_allow_html=True,
         )
+
+st.divider()
+
+# ── XGBoost v2 Development ────────────────────────────────────────────────────
+_V1_BASELINE = 0.663
+_v2 = load_v2_bundle()
+
+st.subheader("XGBoost v2 Development")
+st.caption("31 features (17 เดิม + 14 leading indicators) — shadow mode, targeting Dec 2026 graduation")
+
+if not _v2["ok"]:
+    st.info("v2 model bundle not found — run scripts/train_regime_xgb_v2.py first.")
+else:
+    _wf   = _v2["wf_accuracy"]
+    _nber = _v2["nber_passed"]
+    _nfeat = _v2["n_features"]
+    _ratio = round(712 / _nfeat, 1) if _nfeat else 0
+
+    _acc_ok   = isinstance(_wf, float)   and _wf   > _V1_BASELINE
+    _nber_ok  = isinstance(_nber, int)   and _nber >= 5
+    _ratio_ok = _ratio >= 20
+    _criteria_met = sum([_acc_ok, _nber_ok, _ratio_ok])
+
+    _c1, _c2, _c3, _c4 = st.columns(4)
+
+    with _c1:
+        _wf_pct  = f"{_wf:.1%}" if isinstance(_wf, float) else "—"
+        _wf_col  = "#00ff88" if _acc_ok else ("#ffcc00" if isinstance(_wf, float) and _wf > 0.60 else "#ff4466")
+        st.markdown(
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.5)'>Walk-forward Accuracy</div>"
+            f"<div style='font-size:1.8rem;font-weight:bold;color:{_wf_col}'>{_wf_pct}</div>"
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>baseline {_V1_BASELINE:.1%}</div>",
+            unsafe_allow_html=True,
+        )
+
+    with _c2:
+        _nber_str = f"{_nber}/6" if isinstance(_nber, int) else "—"
+        _nber_col = "#00ff88" if _nber_ok else "#ff4466"
+        st.markdown(
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.5)'>NBER Episodes</div>"
+            f"<div style='font-size:1.8rem;font-weight:bold;color:{_nber_col}'>{_nber_str}</div>"
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>need &ge;5/6</div>",
+            unsafe_allow_html=True,
+        )
+
+    with _c3:
+        _ratio_col = "#00ff88" if _ratio_ok else "#ff4466"
+        st.markdown(
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.5)'>Sample/Feature</div>"
+            f"<div style='font-size:1.8rem;font-weight:bold;color:{_ratio_col}'>{_ratio}:1</div>"
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>{_nfeat} features, need &ge;20:1</div>",
+            unsafe_allow_html=True,
+        )
+
+    with _c4:
+        _status_col  = "#00ff88" if _criteria_met == 3 else ("#ffcc00" if _criteria_met >= 2 else "#ff4466")
+        _status_text = "Ready to promote" if _criteria_met == 3 else f"{_criteria_met}/3 criteria met"
+        st.markdown(
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.5)'>Status</div>"
+            f"<div style='font-size:1.1rem;font-weight:bold;color:{_status_col}'>{_status_text}</div>"
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>graduation target: Dec 2026</div>",
+            unsafe_allow_html=True,
+        )
+
+    # Progress bar
+    _bar_w   = int(_criteria_met / 3 * 100)
+    _bar_col = "#00ff88" if _criteria_met == 3 else ("#ffcc00" if _criteria_met >= 2 else "#ff4466")
+    _missing = []
+    if not _acc_ok:
+        _missing.append(f"accuracy {_wf:.1%} < {_V1_BASELINE:.1%}" if isinstance(_wf, float) else "accuracy —")
+    if not _nber_ok:
+        _missing.append(f"NBER {_nber}/6 < 5" if isinstance(_nber, int) else "NBER —")
+    if not _ratio_ok:
+        _missing.append(f"ratio {_ratio}:1 < 20:1")
+    _miss_str = "  ·  ".join(_missing) if _missing else "all criteria met"
+    st.markdown(
+        f"<div style='background:#1a1a2e;border-radius:4px;height:8px;width:100%;margin:10px 0 4px'>"
+        f"<div style='background:{_bar_col};height:100%;width:{_bar_w}%;border-radius:4px'></div></div>"
+        f"<span style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>Missing: {_miss_str}"
+        f"  ·  retrained quarterly (Jan/Apr/Jul/Oct) via GitHub Actions</span>",
+        unsafe_allow_html=True,
+    )
 
 st.divider()
 
