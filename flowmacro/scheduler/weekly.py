@@ -33,6 +33,7 @@ _REGIME_CODE = {
 _REGIME_NAME = {v: k for k, v in _REGIME_CODE.items()}
 
 _LOW_CONFIDENCE_THRESHOLD = 60.0
+_USE_ML_V2 = False   # flip to True after graduation + promote_model_v2.py
 
 
 def _previous_regime() -> str | None:
@@ -275,6 +276,7 @@ def run() -> None:
 
         # 5e. Features v2 — fetch latest values for macro_features_v2 table
         # Collects leading indicator data weekly; NOT used for model training until Dec 2026
+        _v2_feat_dict: dict[str, float] = {}   # shared with step 5f below
         try:
             from flowmacro.data.features_v2 import build_features_v2
             from flowmacro.data.store import upsert_features_v2, read_features_v2
@@ -295,14 +297,33 @@ def run() -> None:
                         _fv2_latest = _fv2_stored.iloc[-1]
                         logger.warning("features_v2: all-NaN latest row — using last stored values as fallback")
 
-                _fv2_features = {col: val for col, val in _fv2_latest.items()}
-                upsert_features_v2(str(date.today()), _fv2_features)
-                non_nan = sum(1 for v in _fv2_features.values() if v is not None and not pd.isna(v))
-                logger.info(f"features_v2 stored: {non_nan}/14 features for {date.today()}")
+                _v2_feat_dict = {col: float(val) for col, val in _fv2_latest.items() if pd.notna(val)}
+                upsert_features_v2(str(date.today()), _v2_feat_dict)
+                logger.info(f"features_v2 stored: {len(_v2_feat_dict)}/14 features for {date.today()}")
             else:
                 logger.warning("features_v2: build returned empty DataFrame — skipped")
         except Exception as exc:
             logger.warning(f"features_v2 weekly update skipped: {exc}")
+
+        # 5f. ML v2 shadow (gated — set _USE_ML_V2 = True after promote_model_v2.py)
+        # Combines old indicator scores + new features_v2 → predict_ml_v2
+        if _USE_ML_V2:
+            try:
+                from flowmacro.regime.ml_predictor import predict_ml_v2
+                # Merge old features + new features_v2 into one dict
+                _v2_combined = {
+                    **normalized_latest,
+                    "growth_score":    growth,
+                    "inflation_score": inflation,
+                    **_v2_feat_dict,
+                }
+                _ml_v2_regime, _ml_v2_conf = predict_ml_v2(_v2_combined)
+                logger.info(
+                    f"ML v2 shadow: regime={_ml_v2_regime} confidence={_ml_v2_conf:.1f} "
+                    f"(v1={ml_regime}  agrees={_ml_v2_regime == ml_regime})"
+                )
+            except Exception as exc:
+                logger.warning(f"ML v2 shadow failed: {exc}")
 
         # 6. Alert — only on regime change or low confidence
         previous = _previous_regime()
