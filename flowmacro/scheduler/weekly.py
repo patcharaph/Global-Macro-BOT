@@ -273,6 +273,37 @@ def run() -> None:
             except Exception as exc:
                 logger.warning(f"Portfolio B Step 6B failed: {exc}")
 
+        # 5e. Features v2 — fetch latest values for macro_features_v2 table
+        # Collects leading indicator data weekly; NOT used for model training until Dec 2026
+        try:
+            from flowmacro.data.features_v2 import build_features_v2
+            from flowmacro.data.store import upsert_features_v2, read_features_v2
+
+            # Need 260W window + max 52W return period + buffer
+            _fv2_start = str(date.today() - timedelta(weeks=325))
+            _fv2_df    = build_features_v2(start=_fv2_start)
+
+            if not _fv2_df.empty:
+                _fv2_latest = _fv2_df.iloc[-1]
+
+                # Fallback: if latest row is all-NaN, use last stored value
+                if _fv2_latest.isna().all():
+                    _fv2_stored = read_features_v2(
+                        start=str(date.today() - timedelta(days=14))
+                    )
+                    if not _fv2_stored.empty:
+                        _fv2_latest = _fv2_stored.iloc[-1]
+                        logger.warning("features_v2: all-NaN latest row — using last stored values as fallback")
+
+                _fv2_features = {col: val for col, val in _fv2_latest.items()}
+                upsert_features_v2(str(date.today()), _fv2_features)
+                non_nan = sum(1 for v in _fv2_features.values() if v is not None and not pd.isna(v))
+                logger.info(f"features_v2 stored: {non_nan}/14 features for {date.today()}")
+            else:
+                logger.warning("features_v2: build returned empty DataFrame — skipped")
+        except Exception as exc:
+            logger.warning(f"features_v2 weekly update skipped: {exc}")
+
         # 6. Alert — only on regime change or low confidence
         previous = _previous_regime()
         should_send, reason = _should_alert(result.regime, result.confidence, previous)

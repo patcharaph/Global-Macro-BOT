@@ -139,6 +139,42 @@ def upsert_paper_portfolio_ml(
     )
 
 
+def upsert_features_v2(run_date: str, features: dict) -> None:
+    """Upsert one row into macro_features_v2 (conflict key: date)."""
+    client = _client()
+    row = {
+        "date": run_date,
+        **{k: (None if pd.isna(v) else float(v)) for k, v in features.items()},
+    }
+    _with_retry(
+        lambda: client.table("macro_features_v2").upsert(row, on_conflict="date").execute(),
+        label="Supabase macro_features_v2",
+    )
+    logger.debug(f"macro_features_v2 upsert: {run_date} ({len(features)} features)")
+
+
+def read_features_v2(start: str = "2010-01-01") -> pd.DataFrame:
+    """Read macro_features_v2 table. Returns DataFrame with date index."""
+    client = _client()
+    ref: list = []
+    _with_retry(
+        lambda: ref.append(
+            client.table("macro_features_v2")
+            .select("*")
+            .gte("date", start)
+            .order("date")
+            .execute()
+        ),
+        label="Supabase read macro_features_v2",
+    )
+    rows = ref[0].data
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.set_index("date").drop(columns=["created_at"], errors="ignore")
+
+
 def read_paper_portfolio_ml(start: str = "2020-01-01") -> pd.DataFrame:
     """Read Portfolio B history. Returns DataFrame with date index and all columns."""
     client = _client()
