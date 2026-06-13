@@ -244,20 +244,27 @@ def main(prune_threshold: float = _PRUNE_THRESHOLD, use_shap: bool = True) -> No
     except Exception as exc:
         logger.warning(f"Supabase upload failed: {exc} — model saved locally only")
 
-    # Step 8c: Write metadata row to ml_model_meta (dashboard reads this, not the pkl)
+    # Step 8c: Upload xgb_regime_v2_meta.json to Supabase Storage (dashboard reads this)
     if uploaded:
         try:
-            from flowmacro.data.store import _client as _sb_client
-            _sb_client().table("ml_model_meta").insert({
-                "model_key":       "xgb_regime_v2",
-                "wf_accuracy":     wf["overall_accuracy"],
-                "nber_passed":     nber["passed"],
-                "n_features":      len(feat_names),
-                "pruned_features": pruned,
-            }).execute()
-            logger.info("Metadata written to ml_model_meta")
+            import json
+            from datetime import datetime
+            from flowmacro.regime.ml_predictor import _client as _sb_client, _BUCKET
+            meta = {
+                "wf_accuracy": round(wf["overall_accuracy"], 4),
+                "nber_passed": nber["passed"],
+                "n_features":  len(feat_names),
+                "pruned":      pruned,
+                "trained_at":  datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }
+            _sb_client().storage.from_(_BUCKET).upload(
+                path="xgb_regime_v2_meta.json",
+                file=json.dumps(meta).encode(),
+                file_options={"content-type": "application/json", "upsert": "true"},
+            )
+            logger.info(f"Metadata uploaded → {_BUCKET}/xgb_regime_v2_meta.json")
         except Exception as exc:
-            logger.warning(f"Metadata write failed: {exc}")
+            logger.warning(f"Metadata upload failed: {exc}")
 
     print()
     if all_ok:

@@ -265,26 +265,18 @@ def load_regime_history(weeks: int = 52) -> pd.DataFrame:
 
 @st.cache_data(ttl=300)
 def load_v2_bundle() -> dict:
-    """Load v2 model metadata from ml_model_meta table (lightweight — no pkl download)."""
+    """Download xgb_regime_v2_meta.json from Supabase Storage (lightweight metadata only)."""
     try:
-        rows = (
-            _db().table("ml_model_meta")
-            .select("*")
-            .eq("model_key", "xgb_regime_v2")
-            .order("trained_at", desc=True)
-            .limit(1)
-            .execute().data
-        )
-        if not rows:
-            return {"ok": False}
-        r = rows[0]
+        import json
+        data = _db().storage.from_("flowmacro-models").download("xgb_regime_v2_meta.json")
+        meta = json.loads(data)
         return {
             "ok":          True,
-            "wf_accuracy": r.get("wf_accuracy"),
-            "nber_passed": r.get("nber_passed"),
-            "n_features":  r.get("n_features"),
-            "pruned":      r.get("pruned_features") or [],
-            "trained_at":  r.get("trained_at", ""),
+            "wf_accuracy": meta.get("wf_accuracy"),
+            "nber_passed": meta.get("nber_passed"),
+            "n_features":  meta.get("n_features"),
+            "pruned":      meta.get("pruned", []),
+            "trained_at":  meta.get("trained_at", ""),
         }
     except Exception:
         return {"ok": False}
