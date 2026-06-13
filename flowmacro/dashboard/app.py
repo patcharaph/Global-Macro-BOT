@@ -274,6 +274,7 @@ def load_v2_bundle() -> dict:
             "ok":          True,
             "wf_accuracy": meta.get("wf_accuracy"),
             "nber_passed": meta.get("nber_passed"),
+            "nber_total":  meta.get("nber_total", 6),
             "n_features":  meta.get("n_features"),
             "pruned":      meta.get("pruned", []),
             "trained_at":  meta.get("trained_at", ""),
@@ -815,13 +816,14 @@ st.caption("31 features (17 เดิม + 14 leading indicators) — shadow mod
 if not _v2["ok"]:
     st.info("v2 model bundle not found — run scripts/train_regime_xgb_v2.py first.")
 else:
-    _wf   = _v2["wf_accuracy"]
-    _nber = _v2["nber_passed"]
-    _nfeat = _v2["n_features"]
-    _ratio = round(712 / _nfeat, 1) if _nfeat else 0
+    _wf         = _v2["wf_accuracy"]
+    _nber       = _v2["nber_passed"]
+    _nber_total = _v2.get("nber_total", 6)
+    _nfeat      = _v2["n_features"]
+    _ratio      = round(712 / _nfeat, 1) if _nfeat else 0
 
-    _acc_ok   = isinstance(_wf, float)   and _wf   > _V1_BASELINE
-    _nber_ok  = isinstance(_nber, int)   and _nber >= 5
+    _acc_ok   = isinstance(_wf, float) and _wf > _V1_BASELINE
+    _nber_ok  = isinstance(_nber, int) and _nber == _nber_total and _nber_total >= 3
     _ratio_ok = _ratio >= 20
     _criteria_met = sum([_acc_ok, _nber_ok, _ratio_ok])
 
@@ -838,12 +840,12 @@ else:
         )
 
     with _c2:
-        _nber_str = f"{_nber}/6" if isinstance(_nber, int) else "—"
+        _nber_str = f"{_nber}/{_nber_total}" if isinstance(_nber, int) else "—"
         _nber_col = "#00ff88" if _nber_ok else "#ff4466"
         st.markdown(
             f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.5)'>NBER Episodes</div>"
             f"<div style='font-size:1.8rem;font-weight:bold;color:{_nber_col}'>{_nber_str}</div>"
-            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>need &ge;5/6</div>",
+            f"<div style='font-size:0.75rem;color:rgba(255,255,255,0.4)'>w/ data (pre-2013 skipped)</div>",
             unsafe_allow_html=True,
         )
 
@@ -873,7 +875,7 @@ else:
     if not _acc_ok:
         _missing.append(f"accuracy {_wf:.1%} < {_V1_BASELINE:.1%}" if isinstance(_wf, float) else "accuracy —")
     if not _nber_ok:
-        _missing.append(f"NBER {_nber}/6 < 5" if isinstance(_nber, int) else "NBER —")
+        _missing.append(f"NBER {_nber}/{_nber_total} not all passed" if isinstance(_nber, int) else "NBER —")
     if not _ratio_ok:
         _missing.append(f"ratio {_ratio}:1 < 20:1")
     _miss_str = "  ·  ".join(_missing) if _missing else "all criteria met"

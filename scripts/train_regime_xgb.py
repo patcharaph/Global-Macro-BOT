@@ -138,7 +138,7 @@ def get_labels() -> pd.Series:
 
 # ── Walk-forward validation ───────────────────────────────────────────────────
 
-def walk_forward_validate(X: pd.DataFrame, y: pd.Series) -> dict:
+def walk_forward_validate(X: pd.DataFrame, y: pd.Series, xgb_params: dict | None = None) -> dict:
     from xgboost import XGBClassifier
     from sklearn.metrics import accuracy_score, classification_report
 
@@ -175,7 +175,7 @@ def walk_forward_validate(X: pd.DataFrame, y: pd.Series) -> dict:
         X_tr, y_tr = train.drop("label", axis=1), train["label"]
         X_te, y_te = test.drop("label", axis=1),  test["label"]
 
-        model = XGBClassifier(**_XGB_PARAMS)
+        model = XGBClassifier(**(xgb_params or _XGB_PARAMS))
         model.fit(X_tr, y_tr)
         preds = model.predict(X_te)
         acc   = accuracy_score(y_te, preds)
@@ -210,7 +210,7 @@ def walk_forward_validate(X: pd.DataFrame, y: pd.Series) -> dict:
 
 # ── Final model ───────────────────────────────────────────────────────────────
 
-def train_final(X: pd.DataFrame, y: pd.Series):
+def train_final(X: pd.DataFrame, y: pd.Series, xgb_params: dict | None = None):
     from xgboost import XGBClassifier
 
     y_enc = y.map(REGIME_ENCODE)
@@ -220,7 +220,7 @@ def train_final(X: pd.DataFrame, y: pd.Series):
     data = data.fillna(data.median())
     X_all, y_all = data.drop("label", axis=1), data["label"]
 
-    model = XGBClassifier(**_XGB_PARAMS)
+    model = XGBClassifier(**(xgb_params or _XGB_PARAMS))
     model.fit(X_all, y_all)
     return model, X_all.columns.tolist()
 
