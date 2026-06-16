@@ -32,7 +32,10 @@ _REGIME_CODE = {
 }
 _REGIME_NAME = {v: k for k, v in _REGIME_CODE.items()}
 
-_LOW_CONFIDENCE_THRESHOLD = 60.0
+_LOW_CONFIDENCE_THRESHOLD = 25.0  # was 60 — historical max confidence is 68.8, so 60
+                                   # fired on 99.3% of weeks regardless of regime change.
+                                   # 25 ~= p75-p80 of 854wk history → fires ~21% of weeks,
+                                   # comparable to natural regime-change frequency (~1/4.8wk).
 _USE_ML_V2 = False   # flip to True after graduation + promote_model_v2.py
 
 # Live trading gate — set FLOWMACRO_LIVE_TRADING=true in GitHub Actions secrets to enable
@@ -363,9 +366,14 @@ def run() -> None:
             except Exception as exc:
                 logger.warning(f"ML v2 shadow failed: {exc}")
 
-        # 6. Alert — only on regime change or low confidence
+        # 6. Determine urgency — but ALWAYS send a weekly update (job only runs Fridays).
+        #    should_send=True (regime changed / low confidence / first run) -> tagged ALERT.
+        #    should_send=False (routine, no change)                          -> tagged Update.
         previous = _previous_regime()
         should_send, reason = _should_alert(result.regime, result.confidence, previous)
+        if not reason:
+            reason = "routine weekly update — no regime change, confidence normal"
+        _tag = "ALERT" if should_send else "Update"
 
         # 7. Generate AI thesis
         thesis_body = ""
@@ -384,53 +392,51 @@ def run() -> None:
         except Exception as exc:
             logger.warning(f"Thesis generation skipped: {exc}")
 
-        if should_send:
-            from flowmacro.alerts.gmail import send_alert
-            prev_str = previous or "unknown"
-            paper_section = f"\n\n{'─'*40}\n{paper_summary}" if paper_summary else ""
-            _exec_section = ""
-            if _exec_summary:
-                _mode = "DRY-RUN" if _exec_summary.get("dry_run") else "LIVE"
-                _exec_section = (
-                    f"\n\n{'─'*40}\n"
-                    f"IBKR Execution [{_mode}]\n"
-                    f"  Orders submitted: {_exec_summary['orders']}\n"
-                    f"  Portfolio value:  ${_exec_summary['portfolio_value']:,.2f}\n"
-                    f"  Order IDs:        {', '.join(_exec_summary['order_ids']) or '—'}\n"
-                    + (f"  ERRORS: {'; '.join(_exec_summary['errors'])}\n" if _exec_summary["errors"] else "")
-                )
+        from flowmacro.alerts.gmail import send_alert
+        prev_str = previous or "unknown"
+        paper_section = f"\n\n{'─'*40}\n{paper_summary}" if paper_summary else ""
+        _exec_section = ""
+        if _exec_summary:
+            _mode = "DRY-RUN" if _exec_summary.get("dry_run") else "LIVE"
+            _exec_section = (
+                f"\n\n{'─'*40}\n"
+                f"IBKR Execution [{_mode}]\n"
+                f"  Orders submitted: {_exec_summary['orders']}\n"
+                f"  Portfolio value:  ${_exec_summary['portfolio_value']:,.2f}\n"
+                f"  Order IDs:        {', '.join(_exec_summary['order_ids']) or '—'}\n"
+                + (f"  ERRORS: {'; '.join(_exec_summary['errors'])}\n" if _exec_summary["errors"] else "")
+            )
 
-            # Format regime probabilities for email
-            sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
-            _bar_width = 20
-            probs_lines = "\n".join(
-                f"  {r:<12} {p*100:5.1f}%  {'#' * round(p * _bar_width)}"
-                for r, p in sorted_probs
-            )
-            top2_str = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.1%}  >  {sorted_probs[1][0]} {sorted_probs[1][1]:.1%}"
+        # Format regime probabilities for email
+        sorted_probs = sorted(regime_probs.items(), key=lambda x: x[1], reverse=True)
+        _bar_width = 20
+        probs_lines = "\n".join(
+            f"  {r:<12} {p*100:5.1f}%  {'#' * round(p * _bar_width)}"
+            for r, p in sorted_probs
+        )
+        top2_str = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.1%}  >  {sorted_probs[1][0]} {sorted_probs[1][1]:.1%}"
 
-            body = (
-                f"Date:            {date.today()}\n"
-                f"Regime:          {result.regime}\n"
-                f"Previous:        {prev_str}\n"
-                f"Confidence:      {result.confidence:.1f}%\n"
-                f"Growth Score:    {growth:.1f}\n"
-                f"Inflation Score: {inflation:.1f}\n"
-                f"Reason:          {reason}\n"
-                f"\nRegime Probabilities (V3 blend):\n{probs_lines}\n"
-                f"Top 2: {top2_str}\n"
-                f"\nIndicators ({len(normalized_latest)}): "
-                f"{', '.join(normalized_latest.keys())}"
-                f"{thesis_body}"
-                f"{paper_section}"
-                f"{_exec_section}"
-            )
-            send_alert(
-                f"Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]",
-                body,
-            )
-        else:
-            logger.info(f"No alert — regime unchanged ({result.regime}, confidence={result.confidence:.1f}%)")
+        body = (
+            f"Date:            {date.today()}\n"
+            f"Regime:          {result.regime}\n"
+            f"Previous:        {prev_str}\n"
+            f"Confidence:      {result.confidence:.1f}%\n"
+            f"Growth Score:    {growth:.1f}\n"
+            f"Inflation Score: {inflation:.1f}\n"
+            f"Reason:          {reason}\n"
+            f"\nRegime Probabilities (V3 blend):\n{probs_lines}\n"
+            f"Top 2: {top2_str}\n"
+            f"\nIndicators ({len(normalized_latest)}): "
+            f"{', '.join(normalized_latest.keys())}"
+            f"{thesis_body}"
+            f"{paper_section}"
+            f"{_exec_section}"
+        )
+        send_alert(
+            f"[{_tag}] Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]",
+            body,
+        )
+        logger.info(f"Weekly email sent [{_tag}]: {reason}")
 
         logger.info("Weekly job: done")
 
