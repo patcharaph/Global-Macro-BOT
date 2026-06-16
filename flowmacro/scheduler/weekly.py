@@ -60,16 +60,25 @@ def _previous_regime() -> str | None:
 
 
 def _should_alert(regime: str, confidence: float, previous: str | None) -> tuple[bool, str]:
-    """Return (should_send, reason)."""
+    """Return (should_send, reason).
+
+    should_send only controls the [ALERT] vs [Update] subject tag — the weekly
+    job sends an email every Friday regardless (see run(), step 6). Every branch
+    returns a reason that is true on its own terms; never assert "no regime
+    change" / "confidence normal" when that genuinely isn't known (UNKNOWN
+    previous-regime read failure, NaN confidence).
+    """
     if previous == "UNKNOWN":
-        return False, ""
+        return True, "previous regime unknown — Supabase read failed, cannot verify if it changed"
     if previous is None:
         return True, "first run — no previous regime recorded"
+    if pd.isna(confidence):
+        return True, "confidence is NaN — growth/inflation score unavailable this week"
     if regime != previous:
         return True, f"regime changed: {previous} → {regime}"
     if confidence < _LOW_CONFIDENCE_THRESHOLD:
         return True, f"low confidence: {confidence:.1f}%"
-    return False, ""
+    return False, "routine weekly update — no regime change, confidence normal"
 
 
 def run() -> None:
@@ -371,8 +380,6 @@ def run() -> None:
         #    should_send=False (routine, no change)                          -> tagged Update.
         previous = _previous_regime()
         should_send, reason = _should_alert(result.regime, result.confidence, previous)
-        if not reason:
-            reason = "routine weekly update — no regime change, confidence normal"
         _tag = "ALERT" if should_send else "Update"
 
         # 7. Generate AI thesis
