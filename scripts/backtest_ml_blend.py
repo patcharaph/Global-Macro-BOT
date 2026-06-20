@@ -282,7 +282,7 @@ def main() -> None:
     agree_pct = n_agree / len(df) * 100
 
     print(f"\n{'='*55}")
-    print(f"ML-blend Backtest  {_OOS_START} → {df['date'].iloc[-1]}")
+    print(f"ML-blend Backtest  {_OOS_START} -> {df['date'].iloc[-1]}")
     print(f"{'='*55}")
     print(f"{'Metric':<20} {'Rule-based V3':>16} {'ML-blend 30/70':>16}")
     print(f"{'-'*55}")
