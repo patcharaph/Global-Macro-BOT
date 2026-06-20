@@ -20,6 +20,7 @@ import yfinance as yf
 from loguru import logger
 
 from flowmacro.broker.base import BrokerBase, Order
+from flowmacro.broker.risk_guards import RiskGuardTripped, check_guards, record_value
 
 _MIN_ORDER_VALUE  = 10.0   # USD — skip trades smaller than this
 _MAX_WEIGHT_CAP   = 0.45   # hard cap per asset before sending to broker
@@ -67,6 +68,9 @@ def execute_rebalance(
 
     if portfolio_value < 50:
         raise ValueError(f"Portfolio value ${portfolio_value:.2f} too low — aborting")
+
+    # ── 1b. Risk guards (drawdown circuit breaker + weekly loss limit) ────────
+    check_guards(portfolio_value)
 
     # ── 2. Cap weights ────────────────────────────────────────────────────────
     capped: dict[str, float] = {}
@@ -157,4 +161,9 @@ def execute_rebalance(
         "errors":          errors,
     }
     logger.info(f"executor: done — {summary}")
+
+    # Record portfolio value after successful execution (not during dry-run)
+    if not dry_run:
+        record_value(portfolio_value)
+
     return summary

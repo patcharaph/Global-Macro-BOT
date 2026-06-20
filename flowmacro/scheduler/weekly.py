@@ -195,6 +195,7 @@ def run() -> None:
             try:
                 from flowmacro.broker.ibkr import IBKRBroker
                 from flowmacro.broker.executor import execute_rebalance
+                from flowmacro.broker.risk_guards import RiskGuardTripped
                 _broker = IBKRBroker.connect()
                 try:
                     _exec_summary = execute_rebalance(
@@ -209,8 +210,21 @@ def run() -> None:
                     )
                     if _exec_summary["errors"]:
                         logger.error(f"IBKR order errors: {_exec_summary['errors']}")
+                except RiskGuardTripped as rg:
+                    logger.error(f"RISK GUARD TRIPPED — trading halted this week: {rg}")
+                    try:
+                        from flowmacro.alerts.gmail import send_alert
+                        send_alert(
+                            "[ALERT] FlowMacro RISK GUARD TRIPPED — trading halted",
+                            f"Risk guard fired at {date.today()}:\n\n{rg}\n\n"
+                            "No orders were submitted. Manual review required before next Friday.",
+                        )
+                    except Exception:
+                        pass
                 finally:
                     _broker.disconnect()
+            except RiskGuardTripped:
+                pass  # already handled above
             except Exception as exc:
                 logger.error(f"IBKR execution failed: {exc}")
                 try:
