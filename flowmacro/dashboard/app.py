@@ -244,6 +244,23 @@ def load_backtest_oos() -> pd.Series:
         return pd.Series(dtype=float)
 
 
+@st.cache_data(ttl=86400)
+def load_backtest_portb() -> pd.DataFrame:
+    """Walk-forward ML-blend backtest (Port B) — 2020-present.
+    Columns: ml_blend_value, rb_value, ml_cum_pct, rb_cum_pct etc.
+    Starting value = $10,000 (normalise when computing returns).
+    """
+    try:
+        here = pathlib.Path(__file__).resolve()
+        root = here.parent.parent.parent
+        path = root / "scripts" / "backtest_ml_blend.csv"
+        df = pd.read_csv(str(path), parse_dates=["date"])
+        df = df.set_index("date").sort_index()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
 @st.cache_data(ttl=3600)
 def load_ticker_prices_rv(ticker: str, start: str) -> pd.Series:
     try:
@@ -343,6 +360,16 @@ def _series_ret(series: pd.Series, start: str) -> float | None:
     if series.empty:
         return None
     sub = series[series.index >= pd.Timestamp(start)].dropna()
+    if len(sub) < 2:
+        return None
+    return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
+
+
+def _portb_ret(df: pd.DataFrame, start: str) -> float | None:
+    """Return % gain for Port B (ML-blend) from backtest CSV starting at `start`."""
+    if df.empty or "ml_blend_value" not in df.columns:
+        return None
+    sub = df[df.index >= pd.Timestamp(start)]["ml_blend_value"].dropna()
     if len(sub) < 2:
         return None
     return (float(sub.iloc[-1]) / float(sub.iloc[0]) - 1) * 100
@@ -562,6 +589,7 @@ thesis        = load_latest_thesis()
 thb_rate      = load_thb_rate()
 paper         = load_paper_portfolio()
 _oos_rv       = load_backtest_oos()
+_portb_rv     = load_backtest_portb()
 _spy_rv       = load_ticker_prices_rv("SPY", start="2021-01-01")
 _agg_rv       = load_ticker_prices_rv("AGG", start="2021-01-01")
 _hist_df      = load_regime_history(weeks=52)
@@ -917,10 +945,11 @@ with col_r:
         (f"Live ({_live_weeks}w)", "2026-06-03", True),
     ]
 
+    _portb_last = _portb_rv.index[-1].strftime("%Y-%m-%d") if not _portb_rv.empty else "—"
     _rv_rows = []
     for _pl, _ps, _is_live in _rv_periods:
         _fm_a = paper["pnl_pct"] if (_is_live and paper) else _series_ret(_oos_rv, _ps)
-        _fm_b = _ppb["pnl_pct"]  if (_is_live and _ppb)  else None
+        _fm_b = _ppb["pnl_pct"]  if (_is_live and _ppb)  else _portb_ret(_portb_rv, _ps)
         _spy  = _series_ret(_spy_rv, _ps)
         _rv_rows.append({
             "Period":  _pl,
@@ -931,7 +960,10 @@ with col_r:
         })
 
     st.dataframe(pd.DataFrame(_rv_rows), use_container_width=True, hide_index=True)
-    st.caption("Port A YTD–5Y = backtest OOS  ·  Live rows = ผลจริง (เริ่ม Jun 2026)")
+    st.caption(
+        f"Port A/B YTD–5Y = walk-forward backtest OOS (2020–{_portb_last})  ·  "
+        "Live row = ผลจริง paper trading (เริ่ม Jun 2026)"
+    )
 
 # ── TABS ──────────────────────────────────────────────────────
 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
