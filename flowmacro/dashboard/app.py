@@ -43,6 +43,22 @@ _PIE_COLORS = [
     "#00ff88", "#00d4ff", "#ffcc00", "#ff4466", "#bf5fff",
     "#ff8800", "#00ffcc", "#ff66aa", "#88ff00", "#4488ff", "#ffaa00", "#aa44ff",
 ]
+_ASSET_LABEL = {
+    "SPY":     "SPY — S&P 500",
+    "QQQ":     "QQQ — Nasdaq 100",
+    "IWM":     "IWM — Small Cap US",
+    "EFA":     "EFA — Developed Mkts",
+    "EEM":     "EEM — Emerging Mkts",
+    "BTC-USD": "BTC — Bitcoin",
+    "TLT":     "TLT — Long Bond 20Y+",
+    "IEF":     "IEF — Mid Bond 7-10Y",
+    "SHY":     "SHY — Short Bond 1-3Y",
+    "GLD":     "GLD — Gold",
+    "SLV":     "SLV — Silver",
+    "DBC":     "DBC — Commodities",
+    "UUP":     "UUP — US Dollar",
+    "Cash":    "Cash",
+}
 
 
 # ── DB ────────────────────────────────────────────────────────
@@ -670,12 +686,13 @@ with col_l:
 
     if _blend:
         sorted_blend = sorted(_blend.items(), key=lambda x: x[1], reverse=True)
-        assets = [a for a, _ in sorted_blend]
-        pcts   = [w * 100 for _, w in sorted_blend]
-        colors = [_ASSET_COLOR.get(a, "#2a3550") for a in assets]
+        assets  = [a for a, _ in sorted_blend]
+        labels  = [_ASSET_LABEL.get(a, a) for a in assets]
+        pcts    = [w * 100 for _, w in sorted_blend]
+        colors  = [_ASSET_COLOR.get(a, "#2a3550") for a in assets]
 
         fig_alloc = go.Figure(go.Bar(
-            x=pcts, y=assets, orientation="h",
+            x=pcts, y=labels, orientation="h",
             marker=dict(color=colors, line=dict(color="rgba(0,0,0,0)", width=0)),
             text=[f"{v:.0f}%" for v in pcts],
             textposition="inside",
@@ -685,9 +702,9 @@ with col_l:
         fig_alloc.update_layout(
             xaxis=dict(range=[0, max(pcts) * 1.12], showgrid=False, showticklabels=False),
             yaxis=dict(showgrid=False, color="#6b7a99",
-                       tickfont=dict(family="monospace", size=10), autorange="reversed"),
+                       tickfont=dict(family="monospace", size=9), autorange="reversed"),
             height=max(180, len(assets) * 27),
-            margin=dict(l=70, r=5, t=4, b=4),
+            margin=dict(l=150, r=5, t=4, b=4),
             plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
             showlegend=False,
         )
@@ -808,76 +825,113 @@ with col_m:
 with col_r:
     st.markdown(
         "<p style='font-size:0.62rem;color:#6b7a99;text-transform:uppercase;"
-        "letter-spacing:1px;font-family:monospace;margin-bottom:8px'>Portfolio Performance</p>",
+        "letter-spacing:1px;font-family:monospace;margin-bottom:6px'>Portfolio Performance</p>",
         unsafe_allow_html=True,
     )
 
-    if paper:
-        _thb_str   = f" / ฿{paper['value_usd'] * thb_rate:,.0f}" if thb_rate else ""
-        _pnl_col   = "#2ecc71" if paper["pnl_pct"] >= 0 else "#e74c3c"
-        _pnl_arrow = "▲" if paper["pnl_pct"] >= 0 else "▼"
-        st.markdown(
-            f"<div style='background:#0f1522;border:1px solid #1e2d45;border-radius:10px;"
-            f"padding:14px 16px;margin-bottom:12px'>"
-            f"<div style='font-size:0.6rem;color:#6b7a99;font-family:monospace;"
-            f"text-transform:uppercase;letter-spacing:1px'>Portfolio A · Since Jun 2026</div>"
-            f"<div style='font-size:1.55rem;font-weight:bold;color:#e8eaf0;"
-            f"font-family:monospace;margin:4px 0'>${paper['value_usd']:,.0f}{_thb_str}</div>"
-            f"<div style='font-size:0.92rem;color:{_pnl_col};font-family:monospace'>"
-            f"{_pnl_arrow} {paper['pnl_pct']:+.1f}%"
-            f"<span style='font-size:0.7rem;color:#6b7a99'>&nbsp;vs $3,000 start</span></div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            "<div style='background:#0f1522;border:1px solid #1e2d45;border-radius:10px;"
-            "padding:14px 16px;margin-bottom:12px;font-family:monospace;"
-            "color:#3a4060;font-size:0.85rem'>Portfolio A — data after first Friday run</div>",
-            unsafe_allow_html=True,
-        )
+    # Legend: explain what each portfolio is
+    st.markdown(
+        "<div style='background:#0a111f;border:1px solid #1e2d45;border-radius:8px;"
+        "padding:10px 14px;margin-bottom:10px;font-family:monospace;font-size:0.78rem'>"
+        "<div style='display:flex;gap:20px;flex-wrap:wrap'>"
+        "<span><b style='color:#c9a84c'>Port A</b>"
+        "<span style='color:#6b7a99'> — Rule-based V3 (regime signals)</span></span>"
+        "<span><b style='color:#bf5fff'>Port B</b>"
+        "<span style='color:#6b7a99'> — ML-blend 30% + rule 70%</span></span>"
+        "</div></div>",
+        unsafe_allow_html=True,
+    )
 
+    # Side-by-side value cards
+    _ppb = load_portfolio_b_live()
+    _ca, _cb = st.columns(2)
+
+    with _ca:
+        if paper:
+            _thb_str   = f"฿{paper['value_usd'] * thb_rate:,.0f}" if thb_rate else ""
+            _pnl_col   = "#2ecc71" if paper["pnl_pct"] >= 0 else "#e74c3c"
+            _pnl_arrow = "▲" if paper["pnl_pct"] >= 0 else "▼"
+            st.markdown(
+                f"<div style='background:#0f1522;border:1px solid #c9a84c33;"
+                f"border-top:2px solid #c9a84c;border-radius:8px;padding:10px 12px'>"
+                f"<div style='font-size:0.6rem;color:#c9a84c;font-family:monospace;"
+                f"text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>Port A</div>"
+                f"<div style='font-size:1.25rem;font-weight:bold;color:#e8eaf0;"
+                f"font-family:monospace'>${paper['value_usd']:,.0f}</div>"
+                f"<div style='font-size:0.7rem;color:#6b7a99;font-family:monospace'>{_thb_str}</div>"
+                f"<div style='font-size:0.9rem;color:{_pnl_col};font-family:monospace;margin-top:2px'>"
+                f"{_pnl_arrow} {paper['pnl_pct']:+.1f}%</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<div style='background:#0f1522;border:1px solid #c9a84c33;"
+                "border-top:2px solid #c9a84c;border-radius:8px;padding:10px 12px;"
+                "font-family:monospace'>"
+                "<div style='font-size:0.6rem;color:#c9a84c;text-transform:uppercase;"
+                "letter-spacing:1px;margin-bottom:4px'>Port A</div>"
+                "<div style='color:#3a4060;font-size:0.82rem'>data after first Friday</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+    with _cb:
+        if _ppb:
+            _ppb_col   = "#2ecc71" if _ppb["pnl_pct"] >= 0 else "#e74c3c"
+            _ppb_arrow = "▲" if _ppb["pnl_pct"] >= 0 else "▼"
+            st.markdown(
+                f"<div style='background:#0f1522;border:1px solid #bf5fff33;"
+                f"border-top:2px solid #bf5fff;border-radius:8px;padding:10px 12px'>"
+                f"<div style='font-size:0.6rem;color:#bf5fff;font-family:monospace;"
+                f"text-transform:uppercase;letter-spacing:1px;margin-bottom:4px'>"
+                f"Port B · {_ppb['n_weeks']}w</div>"
+                f"<div style='font-size:1.25rem;font-weight:bold;color:#e8eaf0;"
+                f"font-family:monospace'>${_ppb['value_usd']:,.0f}</div>"
+                f"<div style='font-size:0.7rem;color:#6b7a99;font-family:monospace'>&nbsp;</div>"
+                f"<div style='font-size:0.9rem;color:{_ppb_col};font-family:monospace;margin-top:2px'>"
+                f"{_ppb_arrow} {_ppb['pnl_pct']:+.1f}%</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                "<div style='background:#0f1522;border:1px solid #bf5fff33;"
+                "border-top:2px solid #bf5fff;border-radius:8px;padding:10px 12px;"
+                "font-family:monospace'>"
+                "<div style='font-size:0.6rem;color:#bf5fff;text-transform:uppercase;"
+                "letter-spacing:1px;margin-bottom:4px'>Port B</div>"
+                "<div style='color:#3a4060;font-size:0.82rem'>data after first Friday</div>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+    # Combined return table: Port A | Port B | SPY | 60/40
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
     _live_weeks = (date.today() - date(2026, 6, 3)).days // 7
     _rv_periods = [
-        ("YTD",  "2026-01-01"),
-        ("1Y",   str(date.today() - timedelta(days=365))),
-        ("3Y",   str(date.today() - timedelta(days=1095))),
-        ("5Y",   str(date.today() - timedelta(days=1825))),
-        (f"Live ({_live_weeks}w)", "2026-06-03"),
+        ("YTD",              "2026-01-01",  False),
+        ("1Y",               str(date.today() - timedelta(days=365)),   False),
+        ("3Y",               str(date.today() - timedelta(days=1095)),  False),
+        ("5Y",               str(date.today() - timedelta(days=1825)),  False),
+        (f"Live ({_live_weeks}w)", "2026-06-03", True),
     ]
 
     _rv_rows = []
-    for _pl, _ps in _rv_periods:
-        if _pl.startswith("Live"):
-            _fm  = paper["pnl_pct"] if paper else None
-        else:
-            _fm  = _series_ret(_oos_rv, _ps)
-        _spy   = _series_ret(_spy_rv, _ps)
-        _alpha = (_fm - _spy) if (_fm is not None and _spy is not None) else None
+    for _pl, _ps, _is_live in _rv_periods:
+        _fm_a = paper["pnl_pct"] if (_is_live and paper) else _series_ret(_oos_rv, _ps)
+        _fm_b = _ppb["pnl_pct"]  if (_is_live and _ppb)  else None
+        _spy  = _series_ret(_spy_rv, _ps)
         _rv_rows.append({
-            "Period":    _pl,
-            "FlowMacro": _fmt_ret(_fm),
-            "SPY":       _fmt_ret(_spy),
-            "60/40":     _fmt_ret(_ret_6040(_spy_rv, _agg_rv, _ps)),
-            "Alpha":     _fmt_ret(_alpha),
+            "Period":  _pl,
+            "Port A":  _fmt_ret(_fm_a),
+            "Port B":  _fmt_ret(_fm_b),
+            "SPY":     _fmt_ret(_spy),
+            "60/40":   _fmt_ret(_ret_6040(_spy_rv, _agg_rv, _ps)),
         })
 
     st.dataframe(pd.DataFrame(_rv_rows), use_container_width=True, hide_index=True)
-    st.caption("FlowMacro YTD–5Y = backtest OOS  ·  Live = ผลจริง  ·  Benchmark = yfinance")
-
-    _ppb = load_portfolio_b_live()
-    if _ppb:
-        _ppb_col = "#2ecc71" if _ppb["pnl_pct"] >= 0 else "#e74c3c"
-        st.markdown(
-            f"<div style='background:#0f1522;border:1px solid #1e2d45;border-radius:8px;"
-            f"padding:10px 14px;margin-top:8px'>"
-            f"<div style='font-size:0.6rem;color:#6b7a99;font-family:monospace;"
-            f"text-transform:uppercase;letter-spacing:1px'>Portfolio B (ML-blend 30%)</div>"
-            f"<div style='font-size:0.88rem;color:{_ppb_col};font-family:monospace;margin-top:4px'>"
-            f"${_ppb['value_usd']:,.0f}  ·  {_ppb['pnl_pct']:+.1f}%  ·  {_ppb['n_weeks']}w</div>"
-            f"</div>",
-            unsafe_allow_html=True,
-        )
+    st.caption("Port A YTD–5Y = backtest OOS  ·  Live rows = ผลจริง (เริ่ม Jun 2026)")
 
 # ── TABS ──────────────────────────────────────────────────────
 st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
