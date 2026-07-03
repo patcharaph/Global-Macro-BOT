@@ -28,10 +28,22 @@ WOW_THRESHOLD = 0.005   # week-over-week change smaller than this is treated as 
 
 
 def _with_cash(weights: dict[str, float]) -> dict[str, float]:
-    """Add a synthetic CASH line so the displayed weights sum to 100%."""
-    invested = sum(weights.values())
-    out = dict(weights)
-    out["CASH"] = max(0.0, 1.0 - invested)
+    """Add a CASH line so the displayed weights sum to 100%.
+
+    momentum_filter.py may already write a real "Cash" position (freed weight
+    from a momentum cut) into the weights dict. Merge that case-insensitively
+    into one canonical "CASH" key plus whatever residual is still needed to
+    reach 100%, so it doesn't show up as a second, separately-labeled line.
+    """
+    out: dict[str, float] = {}
+    cash = 0.0
+    for ticker, w in weights.items():
+        if ticker.upper() == "CASH":
+            cash += w
+        else:
+            out[ticker] = w
+    invested = sum(out.values()) + cash
+    out["CASH"] = cash + max(0.0, 1.0 - invested)
     return out
 
 
