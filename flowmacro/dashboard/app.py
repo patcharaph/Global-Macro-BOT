@@ -7,7 +7,7 @@ import streamlit as st
 import yfinance as yf
 from supabase import create_client
 from flowmacro.config import settings
-from flowmacro.portfolio.allocator import REGIME_WEIGHTS, compute_blended_weights
+from flowmacro.portfolio.allocator import REGIME_WEIGHTS
 
 st.set_page_config(page_title="FlowMacro", layout="wide", initial_sidebar_state="collapsed")
 
@@ -615,15 +615,18 @@ else:
 
 display_regime = dominant_regime or regime
 
-# Blended allocation
+# Blended allocation — read the actual stored weekly.py output (post
+# momentum-filter, post vol-targeting), the same numbers the email/LINE
+# alert shows. Do NOT recompute from regime_probs here: compute_blended_weights()
+# alone skips both filters and misrepresents real cash cuts.
 _blend: dict[str, float] | None = None
-if regime_probs:
-    try:
-        _raw_blend = compute_blended_weights(regime_probs)
-        _blend = {k: v for k, v in _raw_blend.items() if v > 0.001}
-        _blend["Cash"] = _blend.get("Cash", 0.0) + 0.20
-    except Exception:
-        pass
+try:
+    from flowmacro.data.store import read_latest_blend_weights
+    _blend_tickers = sorted({a for w in REGIME_WEIGHTS.values() for a in w} | {"Cash"})
+    _raw_blend = read_latest_blend_weights(_blend_tickers)
+    _blend = {k: v for k, v in _raw_blend.items() if v > 0.001} or None
+except Exception:
+    pass
 
 # Signal strength
 if dominant_prob is not None:

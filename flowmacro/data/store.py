@@ -186,6 +186,24 @@ def read_features_v2(start: str = "2010-01-01") -> pd.DataFrame:
     return df.set_index("date").drop(columns=["created_at"], errors="ignore")
 
 
+def read_latest_blend_weights(tickers: list[str], start: str = "2020-01-01") -> dict[str, float]:
+    """Read each ticker's most recent blend_weight_* value.
+
+    These are the post-momentum-filter, post-vol-targeting weights weekly.py
+    actually wrote for Portfolio A — the same numbers the weekly email/LINE
+    alert shows. Callers displaying "current allocation" should read this
+    instead of recomputing compute_blended_weights() live, which skips both
+    filters and doesn't reflect real cash cuts.
+    """
+    out: dict[str, float] = {}
+    for ticker in tickers:
+        sid = f"blend_weight_{ticker.lower().replace('-', '_')}"
+        s = read_series(sid, start=start).dropna()
+        if not s.empty:
+            out[ticker] = float(s.iloc[-1])
+    return out
+
+
 def read_last_portfolio_b_weights(before_date: str) -> dict | None:
     """Read Portfolio B's blend_weights from the most recent row before before_date.
 
