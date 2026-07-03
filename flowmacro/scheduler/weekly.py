@@ -175,10 +175,18 @@ def run() -> None:
             logger.warning("No price history available — skipping momentum filter and vol targeting")
 
         # V3 Step 6: Rebalance band check (informational for paper trading)
+        # end=yesterday excludes any row already written by an earlier run today
+        # (e.g. a manual re-run after the scheduled one) — mirrors the same
+        # guard read_last_portfolio_b_weights() applies for Portfolio B.
         _prev_weights: dict[str, float] = {}
         try:
+            _prev_weights_end = str(date.today() - timedelta(days=1))
             for _asset in _all_blend_tickers:
-                _s = read_series(f"blend_weight_{_asset.lower().replace('-', '_')}", start=str(date.today() - timedelta(days=8)))
+                _s = read_series(
+                    f"blend_weight_{_asset.lower().replace('-', '_')}",
+                    start=str(date.today() - timedelta(days=8)),
+                    end=_prev_weights_end,
+                )
                 if not _s.empty:
                     _prev_weights[_asset] = float(_s.dropna().iloc[-1])
         except Exception:
