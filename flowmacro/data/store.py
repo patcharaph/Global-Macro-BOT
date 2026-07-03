@@ -186,6 +186,31 @@ def read_features_v2(start: str = "2010-01-01") -> pd.DataFrame:
     return df.set_index("date").drop(columns=["created_at"], errors="ignore")
 
 
+def read_last_portfolio_b_weights(before_date: str) -> dict | None:
+    """Read Portfolio B's blend_weights from the most recent row before before_date.
+
+    Used for the weekly week-over-week allocation diff. Returns None if no
+    prior row exists (first run) or the read fails.
+    """
+    client = _client()
+    ref: list = []
+    _with_retry(
+        lambda: ref.append(
+            client.table("paper_portfolio_ml")
+            .select("date,blend_weights")
+            .lt("date", before_date)
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        ),
+        label="Supabase read paper_portfolio_ml blend_weights",
+    )
+    rows = ref[0].data
+    if not rows:
+        return None
+    return rows[0]["blend_weights"]
+
+
 def read_paper_portfolio_ml(start: str = "2020-01-01") -> pd.DataFrame:
     """Read Portfolio B history. Returns DataFrame with date index and all columns."""
     client = _client()

@@ -291,11 +291,15 @@ def run() -> None:
             logger.warning(f"Paper portfolio update skipped: {exc}")
 
         # Step 6B: Portfolio B (ML-assisted) — virtual only, no live trades
+        _pb_weights_final: dict[str, float] | None = None
+        _prev_b_weights: dict[str, float] | None = None
         if ml_regime is not None:
             try:
                 from flowmacro.regime.probabilities import compute_ml_blended_probs
                 from flowmacro.broker.paper_portfolio import compute_virtual_b_value
-                from flowmacro.data.store import upsert_paper_portfolio_ml
+                from flowmacro.data.store import upsert_paper_portfolio_ml, read_last_portfolio_b_weights
+
+                _prev_b_weights = read_last_portfolio_b_weights(str(date.today()))
 
                 blend_result = compute_ml_blended_probs(
                     rule_probs=regime_probs,
@@ -335,6 +339,7 @@ def run() -> None:
                     f"Portfolio B: ml={ml_regime} conf={ml_confidence:.1f} "
                     f"week={_pb_return*100:+.2f}% value=${_pb_value:,.2f}"
                 )
+                _pb_weights_final = _pb_weights
             except Exception as exc:
                 logger.warning(f"Portfolio B Step 6B failed: {exc}")
 
@@ -437,6 +442,14 @@ def run() -> None:
         )
         top2_str = f"{sorted_probs[0][0]} {sorted_probs[0][1]:.1%}  >  {sorted_probs[1][0]} {sorted_probs[1][1]:.1%}"
 
+        from flowmacro.alerts.allocation import format_allocation_section
+        alloc_section = format_allocation_section(
+            current_a=blended_weights,
+            prev_a=_prev_weights or None,
+            current_b=_pb_weights_final,
+            prev_b=_prev_b_weights,
+        )
+
         body = (
             f"Date:            {date.today()}\n"
             f"Regime:          {result.regime}\n"
@@ -447,17 +460,19 @@ def run() -> None:
             f"Reason:          {reason}\n"
             f"\nRegime Probabilities (V3 blend):\n{probs_lines}\n"
             f"Top 2: {top2_str}\n"
+            f"\n{alloc_section}\n"
             f"\nIndicators ({len(normalized_latest)}): "
             f"{', '.join(normalized_latest.keys())}"
             f"{thesis_body}"
             f"{paper_section}"
             f"{_exec_section}"
         )
-        send_alert(
-            f"[{_tag}] Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]",
-            body,
-        )
+        _subject = f"[{_tag}] Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]"
+        send_alert(_subject, body)
         logger.info(f"Weekly email sent [{_tag}]: {reason}")
+
+        from flowmacro.alerts.line import send_line
+        send_line(f"{_subject}\n\n{body}")
 
         logger.info("Weekly job: done")
 
