@@ -6,7 +6,7 @@ import pytest
 
 from flowmacro.data.store import (
     upsert_series, upsert_regime_history, upsert_ml_regime_history, read_series,
-    upsert_paper_portfolio_ml, read_paper_portfolio_ml,
+    upsert_paper_portfolio_ml, read_paper_portfolio_ml, read_latest_blend_weights,
 )
 
 
@@ -257,3 +257,50 @@ def test_read_paper_portfolio_ml_returns_date_indexed_dataframe(mock_client, moc
     assert result.index[0] == pd.Timestamp("2026-06-06")
     assert result["portfolio_value"].iloc[0] == pytest.approx(3_012.50)
     assert result["ml_regime"].iloc[1] == "REFLATION"
+
+
+# ── read_latest_blend_weights ─────────────────────────────────────────────
+# read_series() itself is exhaustively covered above (retry/pagination); these
+# tests exercise only read_latest_blend_weights()'s own orchestration: ticker
+# -> series_id mapping, picking the latest non-null value, and omitting
+# tickers with no data.
+
+@patch("flowmacro.data.store.read_series")
+def test_read_latest_blend_weights_maps_ticker_to_series_id(mock_read_series):
+    mock_read_series.return_value = pd.Series([0.10], index=[pd.Timestamp("2026-07-03")])
+    read_latest_blend_weights(["BTC-USD"])
+    mock_read_series.assert_called_once_with("blend_weight_btc_usd", start="2020-01-01")
+
+
+@patch("flowmacro.data.store.read_series")
+def test_read_latest_blend_weights_returns_latest_value_per_ticker(mock_read_series):
+    def _by_sid(sid, start):
+        return {
+            "blend_weight_spy": pd.Series(
+                [0.20, 0.25], index=[pd.Timestamp("2026-06-26"), pd.Timestamp("2026-07-03")]
+            ),
+            "blend_weight_gld": pd.Series([0.30], index=[pd.Timestamp("2026-07-03")]),
+        }[sid]
+    mock_read_series.side_effect = _by_sid
+
+    result = read_latest_blend_weights(["SPY", "GLD"])
+
+    assert result == {"SPY": pytest.approx(0.25), "GLD": pytest.approx(0.30)}
+
+
+@patch("flowmacro.data.store.read_series")
+def test_read_latest_blend_weights_omits_ticker_with_no_data(mock_read_series):
+    mock_read_series.return_value = pd.Series(dtype=float)
+
+    result = read_latest_blend_weights(["SPY"])
+
+    assert result == {}
+
+
+@patch("flowmacro.data.store.read_series")
+def test_read_latest_blend_weights_omits_ticker_with_all_nan(mock_read_series):
+    mock_read_series.return_value = pd.Series([float("nan")], index=[pd.Timestamp("2026-07-03")])
+
+    result = read_latest_blend_weights(["SPY"])
+
+    assert result == {}
