@@ -7,6 +7,7 @@ import pytest
 from flowmacro.data.store import (
     upsert_series, upsert_regime_history, upsert_ml_regime_history, read_series,
     upsert_paper_portfolio_ml, read_paper_portfolio_ml, read_latest_blend_weights,
+    read_last_portfolio_b_weights,
 )
 
 
@@ -304,3 +305,81 @@ def test_read_latest_blend_weights_omits_ticker_with_all_nan(mock_read_series):
     result = read_latest_blend_weights(["SPY"])
 
     assert result == {}
+
+
+# ── read_last_portfolio_b_weights ─────────────────────────────────────────
+
+def _make_last_b_weights_client(fail_times: int = 0, rows: list | None = None):
+    """Mock for read_last_portfolio_b_weights — chain: select→lt→order→limit→execute."""
+    client = MagicMock()
+    call_count = {"n": 0}
+    _rows = rows if rows is not None else []
+
+    def _execute():
+        call_count["n"] += 1
+        if call_count["n"] <= fail_times:
+            raise ConnectionError("transient network error")
+        result = MagicMock()
+        result.data = _rows
+        return result
+
+    chain = MagicMock()
+    chain.select.return_value = chain
+    chain.lt.return_value = chain
+    chain.order.return_value = chain
+    chain.limit.return_value = MagicMock(execute=_execute)
+    client.table.return_value = chain
+    return client
+
+
+@patch("flowmacro.data.store.time.sleep")
+@patch("flowmacro.data.store._client")
+def test_read_last_portfolio_b_weights_returns_weights_when_row_exists(mock_client, mock_sleep):
+    rows = [{"date": "2026-06-26", "blend_weights": {"SPY": 0.2, "GLD": 0.3}}]
+    mock_client.return_value = _make_last_b_weights_client(rows=rows)
+
+    result = read_last_portfolio_b_weights("2026-07-03")
+
+    assert result == {"SPY": 0.2, "GLD": 0.3}
+
+
+@patch("flowmacro.data.store.time.sleep")
+@patch("flowmacro.data.store._client")
+def test_read_last_portfolio_b_weights_returns_none_when_no_prior_row(mock_client, mock_sleep):
+    mock_client.return_value = _make_last_b_weights_client(rows=[])
+
+    result = read_last_portfolio_b_weights("2026-07-03")
+
+    assert result is None
+
+
+@patch("flowmacro.data.store.time.sleep")
+@patch("flowmacro.data.store._client")
+def test_read_last_portfolio_b_weights_excludes_given_date(mock_client, mock_sleep):
+    client = _make_last_b_weights_client(rows=[{"date": "2026-06-26", "blend_weights": {}}])
+    mock_client.return_value = client
+
+    read_last_portfolio_b_weights("2026-07-03")
+
+    client.table.return_value.lt.assert_called_once_with("date", "2026-07-03")
+
+
+@patch("flowmacro.data.store.time.sleep")
+@patch("flowmacro.data.store._client")
+def test_read_last_portfolio_b_weights_retries_on_transient_failure(mock_client, mock_sleep):
+    mock_client.return_value = _make_last_b_weights_client(fail_times=1, rows=[])
+
+    result = read_last_portfolio_b_weights("2026-07-03")
+
+    assert result is None
+    mock_sleep.assert_called_once_with(2)
+
+
+@patch("flowmacro.data.store.time.sleep")
+@patch("flowmacro.data.store._client")
+def test_read_last_portfolio_b_weights_raises_after_all_retries(mock_client, mock_sleep):
+    mock_client.return_value = _make_last_b_weights_client(fail_times=99)
+
+    with pytest.raises(ConnectionError):
+        read_last_portfolio_b_weights("2026-07-03")
+    assert [c.args[0] for c in mock_sleep.call_args_list] == [2, 4]
