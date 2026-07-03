@@ -1,2 +1,3 @@
 # Test-only dependencies — not needed at runtime, only for CI/local test runs
 pytest>=8.0.0
+vectorbt>=1.0.0   # tests/backtest/* only
