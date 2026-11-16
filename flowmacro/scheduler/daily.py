@@ -102,6 +102,18 @@ def run() -> None:
     except Exception as exc:
         logger.warning(f"BTC fetch skipped: {exc}")
 
+    try:
+        from flowmacro.export.snapshot import export_from_store
+        as_of = date.today()
+        if not prices.empty:
+            last_idx = prices.dropna(how="all").index.max()
+            if last_idx is not None:
+                as_of = last_idx.date() if hasattr(last_idx, "date") else last_idx
+        export_from_store(as_of=as_of, notes=["written by daily job"])
+        logger.info(f"Wrote public/latest.json as_of={as_of}")
+    except Exception as exc:
+        logger.error(f"Public JSON export failed: {exc}")
+
     logger.info("Daily job: done")
 
 

@@ -138,7 +138,7 @@ with c4:
     )
     if not regimes.empty:
         conf = float(regimes["confidence"].iloc[-1])
-        st.caption(f"Confidence: {conf:.1f}%")
+        st.caption(f"V2 axis confidence: {conf:.1f}%  (not the V3 softmax probability)")
 
 if weeks_tracked < 4:
     st.info(

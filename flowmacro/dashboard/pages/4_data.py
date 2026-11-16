@@ -15,10 +15,21 @@ def _db():
 
 @st.cache_data(ttl=300)
 def list_series() -> list[str]:
+    """Unique series ids. Paginate: PostgREST caps a single response at 1000 rows."""
     try:
-        rows = _db().table("raw_series").select("series_id").execute().data
-        return sorted({r["series_id"] for r in rows})
-    except Exception:
+        db = _db()
+        ids: set[str] = set()
+        start = 0
+        page = 1000
+        while True:
+            rows = db.table("raw_series").select("series_id").range(start, start + page - 1).execute().data or []
+            ids.update(r["series_id"] for r in rows if r.get("series_id"))
+            if len(rows) < page:
+                break
+            start += page
+        return sorted(ids)
+    except Exception as exc:
+        st.error(f"Cannot list series from Supabase: {exc}")
         return []
 
 

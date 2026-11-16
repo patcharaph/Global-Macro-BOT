@@ -366,10 +366,43 @@ Portfolio weights = Σ p_k × w_k_asset (ทุก regime พร้อมกั�
 
 ---
 
+
+## Public snapshot JSON (T7a)
+
+Streamlit Community Cloud does not expose a REST API. The hosted dashboard
+(`https://global-macro-bot-eol4qvqhx3jjyeg6cpvtle.streamlit.app/`) currently
+redirects unauthenticated requests — including `/_stcore/health`, `/data`, and
+`/health` — to Streamlit login, so `curl` only sees a shell or a 303. This repo
+does **not** change that sharing setting (the owner must decide whether the UI
+stays behind login).
+
+Instead, the daily and weekly GitHub Actions jobs write `public/latest.json` and
+commit it. After the first successful job on `main`:
+
+```bash
+curl -sS https://raw.githubusercontent.com/patcharaph/Global-Macro-BOT/main/public/latest.json
+```
+
+The file includes `as_of` (Asia/Bangkok), V3 dominant probability, and V2
+axis-deviation confidence as **separate** fields (`v3_dominant_prob_pct` vs
+`v2_axis_confidence`). Those two numbers were previously both labelled
+"Confidence" (61% vs 31.6% on the 13 Nov 2026 weekly run).
+
+Local demo (no API keys, not live data):
+
+```bash
+python -m flowmacro.export.snapshot --demo --out /tmp/flowmacro-latest.json
+curl -sS file:///tmp/flowmacro-latest.json
+```
+
+After merge, run (or wait for) the Daily Data Refresh workflow, then curl the
+raw URL above and check that `as_of` is not older than one business day
+(weekends skipped; market holidays are not).
+
 ## Tests
 
 ```bash
-pytest  # 143 tests, 0 failures
+pytest  # 202 tests, 0 failures (T7a, 16 Nov 2026)
 ```
 
 ---

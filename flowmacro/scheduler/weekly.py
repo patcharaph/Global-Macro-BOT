@@ -462,7 +462,8 @@ def run() -> None:
             f"Date:            {date.today()}\n"
             f"Regime:          {result.regime}\n"
             f"Previous:        {prev_str}\n"
-            f"Confidence:      {result.confidence:.1f}%\n"
+            f"V2 axis confidence: {result.confidence:.1f}%\n"
+            f"V3 dominant:        {dominant_regime} {regime_probs[dominant_regime]:.1%}\n"
             f"Growth Score:    {growth:.1f}\n"
             f"Inflation Score: {inflation:.1f}\n"
             f"Reason:          {reason}\n"
@@ -475,12 +476,31 @@ def run() -> None:
             f"{paper_section}"
             f"{_exec_section}"
         )
-        _subject = f"[{_tag}] Regime: {result.regime} ({result.confidence:.0f}%)  [{top2_str}]"
+        _subject = (
+            f"[{_tag}] Regime: {dominant_regime} "
+            f"(V3 {regime_probs[dominant_regime]:.0%} / V2 {result.confidence:.0f})  [{top2_str}]"
+        )
         send_alert(_subject, body)
         logger.info(f"Weekly email sent [{_tag}]: {reason}")
 
         from flowmacro.alerts.line import send_line
         send_line(f"{_subject}\n\n{body}")
+
+        try:
+            from datetime import date as _date
+            from flowmacro.export.snapshot import write_snapshot, build_snapshot
+            write_snapshot(build_snapshot(
+                as_of=_date.today(),
+                growth_score=growth,
+                inflation_score=inflation,
+                v2_regime=result.regime,
+                regime_probs=regime_probs,
+                blended_weights=blended_weights,
+                notes=["written by weekly job"],
+            ))
+            logger.info("Wrote public/latest.json")
+        except Exception as exc:
+            logger.error(f"Public JSON export failed: {exc}")
 
         logger.info("Weekly job: done")
 

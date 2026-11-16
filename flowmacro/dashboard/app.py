@@ -8,6 +8,7 @@ import yfinance as yf
 from supabase import create_client
 from flowmacro.config import settings
 from flowmacro.portfolio.allocator import REGIME_WEIGHTS
+from flowmacro.export.snapshot import format_status_confidence
 
 st.set_page_config(page_title="FlowMacro", layout="wide", initial_sidebar_state="collapsed")
 
@@ -659,7 +660,11 @@ _vix_str   = f"{vix:.1f}" if vix is not None else "—"
 _vix_label = ("LOW" if vix < 15 else "NORMAL" if vix < 20 else "ELEVATED" if vix < 30 else "HIGH") if vix else "—"
 _vix_color = ("#2ecc71" if vix < 15 else "#f1c40f" if vix < 25 else "#e74c3c") if vix else "#444"
 
-_conf_str   = f"{dominant_prob:.0%}" if dominant_prob is not None else "—"
+# V3 softmax top probability and V2 axis-deviation used to share the label
+# "Confidence" (61% vs 31.6% on the 13 Nov 2026 run). Show both, named.
+_v3_pct = (dominant_prob * 100) if dominant_prob is not None else None
+_v2_conf = float(confidence) if confidence is not None else None
+_conf_str   = format_status_confidence(_v3_pct, _v2_conf)
 _conf_color = ("#2ecc71" if dominant_prob >= 0.6 else "#f1c40f" if dominant_prob >= 0.4 else "#e74c3c") if dominant_prob else "#444"
 _neon_r     = _REGIME_COLOR.get(display_regime or "", "#888")
 _now_str    = datetime.now(ZoneInfo("Asia/Bangkok")).strftime("%Y-%m-%d %H:%M")
@@ -678,7 +683,7 @@ st.markdown(
     f"<span style='color:{_vix_color}'>{_vix_str}"
     f"&nbsp;<span style='font-size:0.75rem'>[{_vix_label}]</span></span>"
     f"<span style='color:#1e2d45;margin:0 20px;font-size:1.1rem'>│</span>"
-    f"<span style='color:#6b7a99'>Confidence&nbsp;</span>"
+    f"<span style='color:#6b7a99'>Signal&nbsp;</span>"
     f"<span style='color:{_conf_color};font-weight:bold'>{_conf_str}</span>"
     f"<span style='color:{_sig_color};font-size:0.75rem;margin-left:6px'>[{_sig_label}]</span>"
     f"<div style='flex:1'></div>"

@@ -79,7 +79,8 @@ def load_staleness_all() -> pd.DataFrame:
             rows.append({"Series": sid, "Last Update": str(last_date), "Days Stale": stale,
                          "Status": status})
         return pd.DataFrame(rows).sort_values("Days Stale", ascending=False)
-    except Exception:
+    except Exception as exc:
+        st.error(f"Cannot load staleness table: {exc}")
         return pd.DataFrame()
 
 
